@@ -1,0 +1,23 @@
+{
+  "name": "pokemon-mmo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "2D top-down multiplayer monster-taming MMO (SpacetimeDB + Rust + PixiJS).",
+  "license": "ISC",
+  "scripts": {
+    "build:wasm": "wasm-pack build client-wasm --target bundler",
+    "publish": "spacetime publish -p server-module monster-tamer-mmo",
+    "gen": "spacetime generate --lang typescript --out-dir frontend/src/module_bindings --project-path server-module",
+    "build:server": "npm run publish && npm run gen",
+    "build": "npm run build:wasm && npm run build:server && npm --prefix frontend run build",
+    "dev:client": "npm --prefix frontend run dev",
+    "dev:server": "spacetime dev",
+    "check": "cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warnings && npm --prefix frontend run typecheck && npm --prefix frontend run lint",
+    "test": "cargo test --workspace && npm --prefix frontend exec -- vitest run --passWithNoTests",
+    "fmt": "cargo fmt --all"
+  },
+  "devDependencies": {
+    "mcp-remote": "^0.1.38",
+    "playwright": "^1.61.0"
+  }
+}

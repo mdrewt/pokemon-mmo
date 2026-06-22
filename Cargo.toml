@@ -7,3 +7,6 @@ resolver = "2"
 serde = { version = "1", features = ["derive"] }
 rand = "0.8"
 rand_chacha = "0.3"
+# Matches the installed `spacetime` CLI 2.6.0. game-core depends on this ONLY behind its
+# optional `spacetimedb` feature (for SpacetimeType derives); server-module uses it directly.
+spacetimedb = "1.12"

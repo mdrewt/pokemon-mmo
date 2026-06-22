@@ -3,9 +3,15 @@ name = "game-core"
 version = "0.1.0"
 edition = "2021"
 
-# Pure: no wasm-bindgen, no spacetimedb. Stays deterministic and testable in isolation.
+# Pure & deterministic by default: serde only. The optional `spacetimedb` feature adds
+# `SpacetimeType` derives to the handful of types used as table columns / reducer arguments —
+# it adds NO runtime logic and is enabled only by server-module (never by client-wasm).
 [dependencies]
 serde = { workspace = true }
+spacetimedb = { workspace = true, optional = true }
+
+[features]
+spacetimedb = ["dep:spacetimedb"]
 
 [dev-dependencies]
 rand = { workspace = true }

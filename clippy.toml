@@ -1,0 +1,13 @@
+# Determinism guard (applies workspace-wide via `cargo clippy`).
+#
+# `game-core` must be pure and deterministic so client prediction matches server truth: no
+# wall-clock reads, no unseeded randomness — time and RNG are passed in as arguments. These
+# bans make impurity a BUILD FAILURE (CI runs `clippy -D warnings`), not just a review note.
+# No crate in this workspace should read a wall clock; the server uses `ctx.timestamp` and
+# `ctx.rng()`, the client passes time in, and tests seed an explicit RNG.
+disallowed-methods = [
+    { path = "std::time::SystemTime::now", reason = "non-deterministic — pass time in as a Millis argument (server: ctx.timestamp)" },
+    { path = "std::time::Instant::now", reason = "non-deterministic — pass time in as a Millis argument" },
+    { path = "rand::thread_rng", reason = "non-deterministic — pass a seeded Rng in (server: ctx.rng(); tests: ChaCha)" },
+    { path = "rand::random", reason = "non-deterministic — pass a seeded Rng in" },
+]

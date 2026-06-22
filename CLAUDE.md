@@ -251,6 +251,25 @@ Context7 is reserved only for a library that is BOTH version-sensitive AND lacks
    syntax"), never "the whole docs for X" — payload size is the dominant token cost, and a
    focused request is smaller from either server.
 
+## Engineering Principles (apply with judgment — see ARCHITECTURE.md for rationale)
+
+Balance CLEAN/DRY/YAGNI case-by-case; these are this project's pre-resolved tensions so you
+don't thrash or "simplify" deliberate structure away. "Bug-free" is approached, not guaranteed:
+the net is a pure testable `game-core` + mechanical enforcement + parity tests + review gates.
+
+- **DRY, but not across boundaries.** Game *rules* live once in `game-core`. Thin
+  `client-wasm`/reducer/`net` wrappers are intentionally repetitive — don't abstract that
+  boilerplate into clever generics that obscure the boundary.
+- **YAGNI, with NAMED exceptions.** Build only current scope; defer the ARCHITECTURE.md scaling
+  path. But do **not** remove as "over-engineering": (1) full WASM client prediction, (2) the
+  entity/component split (`character` + `player`/`npc`). Keep the POC map a concrete `const`
+  grid — no Tiled/`TileMap` abstraction until a second map exists.
+- **Clean over clever.** Dependency-free domain core, I/O at the edges, small pure functions.
+- **Mechanical enforcement first.** Determinism → `clippy.toml`; boundaries → the compiler +
+  feature-flagged shared types; security → `reducer-security-auditor`; desync → `desync-guard`;
+  DRY/YAGNI/clarity → `/simplify`; bugs → `/code-review`. Each milestone's Definition of Done
+  includes a `/simplify` pass and a `/code-review` pass.
+
 ## Working Style
 
 - For anything spanning more than ~2 files, propose a short plan before editing — this stack

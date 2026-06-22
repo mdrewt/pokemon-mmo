@@ -1,3 +1,9 @@
+//! `client-wasm`: the thin prediction boundary. Marshals at the Rust↔JS seam (via
+//! `serde-wasm-bindgen`) and delegates ALL logic to `game-core`. No game rules live here.
+//!
+//! Signatures are frozen in M0; bodies land in M3. `client-wasm` does NOT enable game-core's
+//! `spacetimedb` feature — it stays pure.
+
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
@@ -6,15 +12,17 @@ pub fn main() {
     console_error_panic_hook::set_once();
 }
 
-// Exports go here. Keep them thin: marshal at the boundary, delegate to game-core.
-// All prediction logic lives in game-core, not here.
-//
-// Example pattern:
-// #[wasm_bindgen]
-// pub fn predict_move(state_json: &str, target_x: f32, target_y: f32) -> Result<String, JsValue> {
-//     let state: PlayerState = serde_json::from_str(state_json)
-//         .map_err(|e| JsValue::from_str(&e.to_string()))?;
-//     let result = game_core::apply_move(&state, Vec2::new(target_x, target_y))
-//         .map_err(|e| JsValue::from_str(&e))?;
-//     serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
-// }
+/// Predict the result of applying one input locally. Deserializes a `CharacterState` and
+/// `MoveInput`, runs `game_core::resolve_input`, and serializes the resulting `CharacterState`.
+/// `now` is milliseconds (see `game_core::Millis`).
+#[wasm_bindgen]
+pub fn predict_input(state: JsValue, input: JsValue, now: u64) -> Result<JsValue, JsValue> {
+    let _ = (state, input, now);
+    todo!("M3: serde_wasm_bindgen marshal → game_core::resolve_input → marshal back")
+}
+
+/// Return the POC map (walkability grid + dimensions) for client rendering and prediction.
+#[wasm_bindgen]
+pub fn poc_map() -> Result<JsValue, JsValue> {
+    todo!("M3: serialize game_core::poc_map()")
+}

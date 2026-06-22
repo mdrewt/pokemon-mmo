@@ -53,7 +53,8 @@ Thumbs.db
 
 # Skills installed via `npx skills add` — derived, reinstall from CLAUDE.md.
 .agents/
-# npx artifacts created by `npx skills add` at project root — not project files.
+# npx artifact from `npx skills add` — not a project file.
 biome.json
-/package.json
+# Root package.json is now a real project file (build-chain scripts + dev tooling) — tracked.
+# Its lockfile and node_modules stay ignored (root deps are local dev tooling, not CI-critical).
 /package-lock.json
