@@ -1,3 +1,5 @@
 [toolchain]
-channel = "stable"
+# Pinned (not floating `stable`) so local builds == CI. Bump deliberately.
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
 targets = ["wasm32-unknown-unknown"]

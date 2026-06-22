@@ -7,5 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-game-core = { path = "../game-core" }
-spacetimedb = "1.1"
+# Enable game-core's `spacetimedb` feature so the shared types (Direction, ActionState,
+# MoveInput) carry their SpacetimeType derives for use as columns / reducer arguments.
+game-core = { path = "../game-core", features = ["spacetimedb"] }
+spacetimedb = { workspace = true }

@@ -1,0 +1,8 @@
+{
+  // Analyze with all features so server-module sees game-core's `spacetimedb` feature
+  // (the cfg_attr SpacetimeType derives) and the feature-flagged shared types don't show
+  // phantom "trait not implemented" errors.
+  "rust-analyzer.cargo.features": "all",
+  // Match CI: surface clippy (incl. the determinism disallowed-methods) inline.
+  "rust-analyzer.check.command": "clippy"
+}
