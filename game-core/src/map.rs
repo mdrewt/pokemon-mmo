@@ -30,9 +30,103 @@ impl TileMap {
                 .copied()
                 .unwrap_or(false)
     }
+
+    /// Build a map from string-art rows (`.` walkable, anything else blocked). All rows must
+    /// share the first row's length. Used by [`poc_map`] and tests.
+    pub(crate) fn from_rows(rows: &[&str]) -> TileMap {
+        let height = rows.len() as i32;
+        let width = rows.first().map_or(0, |r| r.len() as i32);
+        let walkable: Vec<bool> = rows
+            .iter()
+            .flat_map(|row| row.chars().map(|c| c == '.'))
+            .collect();
+        debug_assert_eq!(
+            walkable.len() as i32,
+            width * height,
+            "all rows must be the same length"
+        );
+        TileMap {
+            width,
+            height,
+            walkable,
+        }
+    }
 }
 
-/// The single POC map (~20×15), hand-authored. Returns an owned [`TileMap`].
+/// The single POC map (20×15), hand-authored as string art (`.` walkable, `#` blocked).
+/// Shared verbatim by client and server.
 pub fn poc_map() -> TileMap {
-    todo!("M1: author the ~20x15 POC walkability grid")
+    const ROWS: [&str; 15] = [
+        "####################",
+        "#..................#",
+        "#..####....####....#",
+        "#..................#",
+        "#....####..........#",
+        "#..................#",
+        "#........##........#",
+        "#........##........#",
+        "#..................#",
+        "#..........####....#",
+        "#..####............#",
+        "#..................#",
+        "#..................#",
+        "#..................#",
+        "####################",
+    ];
+    TileMap::from_rows(&ROWS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn poc_map_dimensions_are_consistent() {
+        let m = poc_map();
+        assert_eq!(m.width, 20);
+        assert_eq!(m.height, 15);
+        assert_eq!(m.walkable.len() as i32, m.width * m.height);
+    }
+
+    #[test]
+    fn border_is_blocked() {
+        let m = poc_map();
+        for x in 0..m.width {
+            assert!(!m.is_walkable(TilePos { x, y: 0 }), "top row x={x}");
+            assert!(
+                !m.is_walkable(TilePos { x, y: m.height - 1 }),
+                "bottom row x={x}"
+            );
+        }
+        for y in 0..m.height {
+            assert!(!m.is_walkable(TilePos { x: 0, y }), "left col y={y}");
+            assert!(
+                !m.is_walkable(TilePos { x: m.width - 1, y }),
+                "right col y={y}"
+            );
+        }
+    }
+
+    #[test]
+    fn interior_open_tile_is_walkable() {
+        // Row 1 is all-open interior.
+        assert!(poc_map().is_walkable(TilePos { x: 1, y: 1 }));
+    }
+
+    #[test]
+    fn interior_obstacle_is_blocked() {
+        // Row 6 has a `##` obstacle at x = 9..=10.
+        assert!(!poc_map().is_walkable(TilePos { x: 9, y: 6 }));
+    }
+
+    #[test]
+    fn out_of_bounds_is_not_walkable() {
+        let m = poc_map();
+        assert!(!m.is_walkable(TilePos { x: -1, y: 5 }));
+        assert!(!m.is_walkable(TilePos { x: 5, y: -1 }));
+        assert!(!m.is_walkable(TilePos {
+            x: m.width,
+            y: m.height
+        }));
+    }
 }
