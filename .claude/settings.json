@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "gitmcp-spacetimedb": {
+      "type": "sse",
+      "url": "https://gitmcp.io/clockworklabs/SpacetimeDB"
+    },
+    "gitmcp-pixijs": {
+      "type": "sse",
+      "url": "https://gitmcp.io/pixijs/pixijs"
+    },
+    "gitmcp-wasm-bindgen": {
+      "type": "sse",
+      "url": "https://gitmcp.io/rustwasm/wasm-bindgen"
+    },
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(spacetime:*)",
+      "Bash(cargo:*)",
+      "Bash(wasm-pack:*)",
+      "Bash(vite:*)",
+      "Bash(vitest:*)",
+      "Bash(tsc --noEmit*)",
+      "Bash(eslint:*)"
+    ]
+  }
+}
