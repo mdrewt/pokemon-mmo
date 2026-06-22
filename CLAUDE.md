@@ -182,14 +182,27 @@ Skills in `.claude/skills/` load just-in-time when their description matches the
 
 <!-- Only list servers actually connected. More servers = more context overhead. -->
 
-### [Code knowledge graph — optional, e.g. code-graph-mcp]
-- For a polyglot workspace this size, a graph server helps trace across Rust crates and TS.
-  For "what calls X / what depends on X", query it rather than grepping. Before changing a
-  shared `game-core` signature, run impact analysis — it's used by both client and server,
-  so the blast radius spans the whole repo. [Index dir must be gitignored.]
+### Code knowledge graph: codebase-memory-mcp
 
-### [Other servers — e.g. SpacetimeDB local instance, Postgres]
-- [Server name] — use for [purpose]. [Scoping/safety note.]
+A local code intelligence server (tree-sitter AST + Hybrid LSP type resolution, incl. Rust
+and TypeScript). Use it to answer structural questions instead of grepping or reading files
+across the workspace.
+
+- For "what calls X / what depends on X / where is X defined", query the graph first —
+  don't reconstruct it by reading files. This is the token win; skipping it wastes the index.
+- **Before changing a shared `game-core` signature, run impact analysis.** `game-core` is
+  used by both `client-wasm` and `server-module`, so the blast radius spans the whole repo —
+  a missed caller means client/server prediction desync. Report the affected callers/tests
+  before editing, not after.
+- Trust its Rust resolution over a plain AST guess for trait/generic/macro/`derive` cases
+  (SpacetimeDB leans on `derive` heavily) — that hybrid-LSP layer is why this tool was chosen.
+- If the graph is missing or stale for files in scope, say so and re-index rather than
+  silently falling back to a full-repo grep sweep.
+- Load lazily (Tool Search), not at session start — don't pay its context cost when no
+  structural lookup is needed.
+- It reads the codebase AND writes to agent config files by design. Keep its index directory
+  and any generated config out of git (add to `.gitignore`); review what it writes once on
+  first setup.
 
 ## Library Documentation
 
@@ -238,13 +251,6 @@ Context7 is reserved only for a library that is BOTH version-sensitive AND lacks
    syntax"), never "the whole docs for X" — payload size is the dominant token cost, and a
    focused request is smaller from either server.
 
-### Pinned local docs (offline source of truth)
-
-Neither server is a frozen offline snapshot — both need the network and serve a repo's
-*current* docs. For a version we are locked to and must not let drift, keep a copy at
-`[docs/vendor/<lib>-<version>/]`; that local copy is the source of truth for that version
-and wins over either server on disagreement.
-
 ## Working Style
 
 - For anything spanning more than ~2 files, propose a short plan before editing — this stack
@@ -254,8 +260,6 @@ and wins over either server on disagreement.
 - Scope work to the files I name; don't explore the whole workspace unprompted. Need context?
   Ask or use a subagent so it doesn't fill the main session.
 - Keep diffs minimal and focused; flag unrelated issues separately rather than fixing inline.
-- Prefer plan mode for: schema/migration changes, anything touching authority/validation,
-  and changes to the shared `game-core` contract.
 
 ## Compaction
 

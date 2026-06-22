@@ -1,16 +1,19 @@
 {
   "mcpServers": {
     "gitmcp-spacetimedb": {
-      "type": "sse",
-      "url": "https://gitmcp.io/clockworklabs/SpacetimeDB"
+      "type": "stdio",
+      "command": "/home/mdrewt/projects/ai-apps/pokemon-mmo/node_modules/.bin/mcp-remote",
+      "args": ["https://gitmcp.io/clockworklabs/SpacetimeDB"]
     },
     "gitmcp-pixijs": {
-      "type": "sse",
-      "url": "https://gitmcp.io/pixijs/pixijs"
+      "type": "stdio",
+      "command": "/home/mdrewt/projects/ai-apps/pokemon-mmo/node_modules/.bin/mcp-remote",
+      "args": ["https://gitmcp.io/pixijs/pixijs"]
     },
     "gitmcp-wasm-bindgen": {
-      "type": "sse",
-      "url": "https://gitmcp.io/rustwasm/wasm-bindgen"
+      "type": "stdio",
+      "command": "/home/mdrewt/projects/ai-apps/pokemon-mmo/node_modules/.bin/mcp-remote",
+      "args": ["https://gitmcp.io/rustwasm/wasm-bindgen"]
     },
     "context7": {
       "type": "stdio",
@@ -26,7 +29,50 @@
       "Bash(vite:*)",
       "Bash(vitest:*)",
       "Bash(tsc --noEmit*)",
-      "Bash(eslint:*)"
+      "Bash(eslint:*)",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(npm install*)",
+      "Bash(npm run*)",
+      "Bash(npm create*)",
+      "Bash(cargo new*)",
+      "Bash(cargo add*)",
+      "Bash(cargo generate*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(printf '%s' \"$CLAUDE_TOOL_INPUT\" | jq -re '.tool_input.file_path // \"\"' 2>/dev/null); if printf '%s' \"$FILE\" | grep -qE '(^|/)\\.(env)(\\..+)?$' && ! printf '%s' \"$FILE\" | grep -q '\\.env\\.example'; then echo 'Blocked: direct .env edits forbidden — use .env.example'; exit 2; fi; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(printf '%s' \"$CLAUDE_TOOL_INPUT\" | jq -re '.tool_input.file_path // \"\"' 2>/dev/null); printf '%s' \"$FILE\" | grep -q '\\.rs$' && cargo fmt 2>/dev/null; exit 0",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(printf '%s' \"$CLAUDE_TOOL_INPUT\" | jq -re '.tool_input.file_path // \"\"' 2>/dev/null); if printf '%s' \"$FILE\" | grep -qE '\\.(ts|tsx)$' && test -f frontend/tsconfig.json; then (cd frontend && npx tsc --noEmit 2>&1 | head -30); fi; exit 0",
+            "timeout": 60
+          }
+        ]
+      }
     ]
   }
 }
