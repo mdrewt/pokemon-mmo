@@ -7,6 +7,8 @@ mod encounter;
 mod item;
 mod recruit;
 
-pub use encounter::{EncounterEntry, EncounterTable, ENCOUNTER_CHANCE_PERMILLE};
+pub use encounter::{
+    encounter_triggers, EncounterEntry, EncounterTable, ENCOUNTER_CHANCE_PERMILLE,
+};
 pub use item::Item;
 pub use recruit::{attempt_recruit, recruit_chance, RECRUIT_HP_FACTOR};

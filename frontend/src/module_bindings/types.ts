@@ -70,6 +70,7 @@ export const BattleEvent = __t.enum("BattleEvent", {
   get Fainted() {
     return FaintEvent;
   },
+  RecruitFailed: __t.unit(),
 });
 export type BattleEvent = __Infer<typeof BattleEvent>;
 

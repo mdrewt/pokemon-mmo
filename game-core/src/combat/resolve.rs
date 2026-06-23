@@ -133,12 +133,15 @@ pub struct FaintEvent {
 }
 
 /// One thing that happened during a turn, in order — the client renders these into the battle log
-/// (damage numbers, "X fainted!"). Stored on the battle row.
+/// (damage numbers, "X fainted!", a resisted recruit). Stored on the battle row.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
 pub enum BattleEvent {
     Attack(AttackEvent),
     Fainted(FaintEvent),
+    /// A recruit attempt failed — the wild broke free (the server's taming reducer prepends this to
+    /// the turn's events; `resolve_turn`/`resolve_enemy_turn` never emit it).
+    RecruitFailed,
 }
 
 /// Apply `attacker`'s `skill` to `defender` (mutates the defender's HP). Returns the damage dealt and

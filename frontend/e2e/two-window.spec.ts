@@ -63,9 +63,20 @@ async function ownTile(page: Page): Promise<{ x: number; y: number }> {
   return { x: o.tileX, y: o.tileY };
 }
 
+/** Close any wild encounter that a grass step triggered (M8: walking in grass can start a battle at
+ *  random). Escape closes the battle screen → overworld; movement tests call this so a random
+ *  encounter can't swallow a later input. No-op when not battling. */
+async function fleeIfBattling(page: Page): Promise<void> {
+  if ((await snapshot(page)).battle !== null) {
+    await page.keyboard.press('Escape');
+    await expect.poll(async () => (await snapshot(page)).battle).toBeNull();
+  }
+}
+
 /** Wait until prediction has reconciled to authority (no move in flight). Doubles as the
  *  no-desync invariant: if predicted never equals authoritative, this poll times out. */
 async function settle(page: Page): Promise<void> {
+  await fleeIfBattling(page); // a grass step may have opened a battle that gates movement input
   await expect
     .poll(async () => {
       const g = await snapshot(page);

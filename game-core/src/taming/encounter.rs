@@ -11,6 +11,13 @@ use crate::monster::{Level, SpeciesId};
 /// A tuning knob — high enough to find monsters quickly in the POC, low enough not to spam.
 pub const ENCOUNTER_CHANCE_PERMILLE: u32 = 120;
 
+/// Whether a grass step triggers an encounter, given a `roll` the server derives from `ctx.rng()`.
+/// A free function (the chance is a global tuning constant, not per-zone), so the server can make the
+/// cheap roll BEFORE reading the encounter table — only a hit needs the table (see the server tick).
+pub fn encounter_triggers(roll: u32) -> bool {
+    (roll % 1000) < ENCOUNTER_CHANCE_PERMILLE
+}
+
 /// One possible wild monster in a zone: a species, its relative `weight` in the table, and the
 /// inclusive level range it spawns at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,12 +39,6 @@ impl EncounterTable {
     /// Sum of entry weights (0 for an empty table).
     fn total_weight(&self) -> u32 {
         self.entries.iter().map(|e| e.weight).sum()
-    }
-
-    /// Whether a grass step triggers an encounter, given a `roll` the server derives from `ctx.rng()`.
-    /// Always false for an empty table (nothing spawns where nothing lives).
-    pub fn triggers_encounter(&self, roll: u32) -> bool {
-        !self.entries.is_empty() && (roll % 1000) < ENCOUNTER_CHANCE_PERMILLE
     }
 
     /// Pick a wild `(species, level)`: `species_roll` selects the weighted entry, `level_roll` picks a
@@ -86,21 +87,19 @@ mod tests {
     }
 
     #[test]
-    fn empty_table_never_encounters() {
+    fn empty_table_rolls_nothing() {
         let empty = EncounterTable::default();
-        assert!(!empty.triggers_encounter(0));
         assert_eq!(empty.roll_encounter(0, 0), None);
     }
 
     #[test]
     fn trigger_respects_the_chance_threshold() {
-        let t = table();
         // Roll just under the threshold triggers; at/above does not.
-        assert!(t.triggers_encounter(ENCOUNTER_CHANCE_PERMILLE - 1));
-        assert!(!t.triggers_encounter(ENCOUNTER_CHANCE_PERMILLE));
-        assert!(!t.triggers_encounter(999));
+        assert!(encounter_triggers(ENCOUNTER_CHANCE_PERMILLE - 1));
+        assert!(!encounter_triggers(ENCOUNTER_CHANCE_PERMILLE));
+        assert!(!encounter_triggers(999));
         // The roll is taken modulo 1000, so a large roll maps back into range.
-        assert!(t.triggers_encounter(1000)); // 1000 % 1000 == 0 < threshold
+        assert!(encounter_triggers(1000)); // 1000 % 1000 == 0 < threshold
     }
 
     #[test]

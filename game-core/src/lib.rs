@@ -33,7 +33,7 @@ pub use monster::{
     Temperament, Training, Xp,
 };
 pub use taming::{
-    attempt_recruit, recruit_chance, EncounterEntry, EncounterTable, Item,
+    attempt_recruit, encounter_triggers, recruit_chance, EncounterEntry, EncounterTable, Item,
     ENCOUNTER_CHANCE_PERMILLE, RECRUIT_HP_FACTOR,
 };
 pub use types::{ActionState, CharacterState, Direction, Millis, MoveInput, TilePos};

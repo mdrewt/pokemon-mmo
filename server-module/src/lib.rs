@@ -12,14 +12,15 @@
 //! `game_core::Millis`. Syntax is for `spacetimedb` crate 1.12.0 (CLI 2.6): `name =`, `ctx.sender`.
 
 use game_core::{
-    apply_move, attempt_recruit as recruit_succeeds, battle_xp_reward, derive_stats, level_bounds,
-    load_encounters, load_items, load_skills, load_species, load_type_chart, npc_decide,
-    pick_best_skill, poc_map, recruit_chance, resolve_enemy_turn, resolve_turn, roll_individuality,
-    roll_starter, xp_for_level, ActionState, Affinity, BattleEvent, BattleMonster, BattleOutcome,
-    BattleSide, BattleState, Bond, Category, CharacterState, Direction, Effectiveness,
-    EncounterTable, Level, Millis, MonsterInstance, MoveInput, NpcParams, Potential,
-    Skill as CoreSkill, Species as CoreSpecies, SpeciesId, StatBlock, Temperament, TileMap,
-    TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
+    apply_move, attempt_recruit as recruit_succeeds, battle_xp_reward, derive_stats,
+    encounter_triggers, level_bounds, load_encounters, load_items, load_skills, load_species,
+    load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance, resolve_enemy_turn,
+    resolve_turn, roll_individuality, roll_starter, xp_for_level, ActionState, Affinity,
+    BattleEvent, BattleMonster, BattleOutcome, BattleSide, BattleState, Bond, Category,
+    CharacterState, Direction, Effectiveness, EncounterTable, Level, Millis, MonsterInstance,
+    MoveInput, NpcParams, Potential, Skill as CoreSkill, Species as CoreSpecies, SpeciesId,
+    StatBlock, Temperament, TileMap, TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL,
+    MOVE_QUEUE_CAP, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, Table};
@@ -1002,8 +1003,8 @@ fn maybe_trigger_encounter(ctx: &ReducerContext, entity_id: u64) {
     {
         return; // already in a battle
     }
-    let table = encounter_table_from_db(ctx, ENCOUNTER_ZONE);
-    if !table.triggers_encounter(ctx.random::<u32>()) {
+    // Roll FIRST (cheap) — only a hit reads the encounter table, which `begin_encounter` does once.
+    if !encounter_triggers(ctx.random::<u32>()) {
         return;
     }
     // Ignore the Err (e.g. an all-fainted party) — that just means no encounter, not a tick failure.
@@ -1203,11 +1204,13 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
         battle.state.outcome = BattleOutcome::Recruited;
         battle.last_events = Vec::new();
     } else {
-        // The recruit failed: the player forfeited its attack, so only the wild acts.
+        // The recruit failed: the player forfeited its attack, so only the wild acts. Lead the log
+        // with the authoritative "broke free" event (the client renders it like any other event).
         let chart = type_chart_from_db(ctx);
         let enemy_skill = enemy_skill_choice(ctx, &battle.state, &chart)?;
-        let (new_state, events) =
+        let (new_state, mut events) =
             resolve_enemy_turn(&battle.state, &enemy_skill, &chart, variance(ctx));
+        events.insert(0, BattleEvent::RecruitFailed);
         battle.state = new_state;
         battle.last_events = events;
         persist_party_hp(ctx, &battle);

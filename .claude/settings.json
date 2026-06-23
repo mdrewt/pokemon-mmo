@@ -29,6 +29,7 @@
 			"Write",
 			"Bash",
 			"Glob",
+			"Skill",
 			"Bash(echo:*)",
 			"Bash(grep:*)",
 			"Bash(spacetime:*)",
@@ -45,7 +46,16 @@
 			"Bash(npm create*)",
 			"Bash(cargo new*)",
 			"Bash(cargo add*)",
-			"Bash(cargo generate*)"
+			"Bash(cargo generate*)",
+			"mcp__gitmcp-spacetimedb__fetch_generic_url_content",
+			"mcp__gitmcp-spacetimedb__search_SpacetimeDB_code",
+			"mcp__gitmcp-spacetimedb__search_SpacetimeDB_documentation",
+			"mcp__gitmcp-spacetimedb__*",
+			"mcp__codebase-memory-mcp__trace_path",
+			"mcp__codebase-memory-mcp__search_graph",
+			"mcp__codebase-memory-mcp__get_code_snippet",
+			"mcp__codebase-memory-mcp__query_graph",
+			"mcp__codebase-memory-mcp__*"
 		]
 	},
 	"deny": ["Bash(rm -rf //*)", "Read(~/.ssh/*)", "Read(~/.aws/*)"],
