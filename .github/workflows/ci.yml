@@ -34,15 +34,30 @@ jobs:
           version: v0.13.1
       - name: Build client-wasm
         run: wasm-pack build client-wasm --target bundler
+      # The frontend (tsc/vite) imports client-wasm/pkg, which is a gitignored build
+      # output — hand it to the frontend job instead of rebuilding Rust there.
+      - name: Upload client-wasm pkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-wasm-pkg
+          path: client-wasm/pkg
+          retention-days: 1
 
   frontend:
-    name: Frontend (tsc, eslint, vitest)
+    name: Frontend (tsc, eslint, vitest, build)
+    needs: rust
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+      # Restore the wasm package built by the rust job (path is repo-root relative).
+      - name: Restore client-wasm pkg
+        uses: actions/download-artifact@v4
+        with:
+          name: client-wasm-pkg
+          path: client-wasm/pkg
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -55,5 +70,6 @@ jobs:
       - name: Lint
         run: npx eslint .
       - name: Test
-        # --passWithNoTests until M4 adds the prediction/reconciliation suite.
-        run: npx vitest run --passWithNoTests
+        run: npx vitest run
+      - name: Build
+        run: npx vite build

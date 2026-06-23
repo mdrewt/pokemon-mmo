@@ -3,6 +3,10 @@ import tsParser from '@typescript-eslint/parser';
 
 export default [
   {
+    // Generated SpacetimeDB bindings (gitignored, do-not-edit) and build output.
+    ignores: ['src/module_bindings/**', 'dist/**'],
+  },
+  {
     files: ['src/**/*.ts'],
     languageOptions: {
       parser: tsParser,
