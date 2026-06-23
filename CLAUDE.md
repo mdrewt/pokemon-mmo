@@ -120,7 +120,7 @@ module. The browser-side prediction WASM (`client-wasm`) is a separate `wasm-pac
   ES module, tree-shakes it, and needs no extra WASM plugins or manual async init)
 - Build/publish server module: `spacetime publish -p server-module monster-tamer-mmo`
 - Regenerate client bindings after ANY schema change:
-  `spacetime generate --lang typescript --out-dir frontend/src/module_bindings --project-path server-module`
+  `spacetime generate --lang typescript --out-dir frontend/src/module_bindings --module-path server-module`
 - Dev loop (auto rebuild + publish + regenerate bindings on change): `spacetime dev`
 - Frontend dev / build: `vite` / `vite build`
   (optional: a Vite Rust/WASM plugin can fold the `wasm-pack` step into Vite's build so the
