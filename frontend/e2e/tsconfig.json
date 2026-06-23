@@ -1,0 +1,9 @@
+{
+  "comment": "Separate config for the e2e suite — kept out of the app's `tsc --noEmit` (which only includes src/). Playwright transpiles specs itself; this exists for editor/local typechecking.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts", "../playwright.config.ts", "../src/test/introspect.ts"]
+}

@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
+    "test:e2e": "playwright test",
     "lint": "eslint .",
     "gen:sheet": "node scripts/gen-spritesheet.mjs"
   },
@@ -17,6 +18,7 @@
     "spacetimedb": "^2.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.0.0",

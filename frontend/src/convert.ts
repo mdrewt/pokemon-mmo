@@ -59,7 +59,12 @@ export function characterToPredictedBaseline(
   stepMs: number,
 ): WasmCharacterState {
   const base = characterToWasm(c);
-  base.move_started_at = Math.floor(localNow) - stepMs * 2;
+  // Clamp at 0: `move_started_at` is `Millis(u64)` across the wasm boundary, so a negative value is
+  // rejected by serde ("expected u64") and crashes prediction. `localNow - 2*step` goes negative
+  // when the page is younger than two steps (performance.now() resets to 0 on navigation), i.e. when
+  // a client joins and moves within the first ~400ms. 0 is still safely in the past, so the first
+  // queued move still drains immediately.
+  base.move_started_at = Math.max(0, Math.floor(localNow) - stepMs * 2);
   return base;
 }
 

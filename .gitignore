@@ -23,6 +23,12 @@ dist/
 .vite/
 *.tsbuildinfo
 
+# ── Playwright (M5 two-window e2e) output ─────────────
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
 # ── Code knowledge graph index (codebase-memory-mcp) ──
 # Derived index — never commit. Confirm the actual dir/config names on first setup
 # (the tool writes to agent config + an index dir); add anything it generates here.
