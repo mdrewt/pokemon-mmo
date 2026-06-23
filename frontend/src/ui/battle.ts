@@ -6,17 +6,7 @@
 
 import type { NetHandle } from '../net/connection';
 import type { BattleMonster } from '../module_bindings/types';
-
-const AFFINITY_COLOR: Record<string, string> = {
-  Neutral: '#9aa3b2',
-  Fire: '#e2553c',
-  Water: '#2f8fe0',
-  Nature: '#5cbf5c',
-  Electric: '#e6c534',
-  Earth: '#b8865a',
-  Light: '#f0e08a',
-  Dark: '#7a5fb0',
-};
+import { affinityColor } from './affinity';
 
 export class BattleScreen {
   #net: NetHandle;
@@ -158,9 +148,9 @@ export class BattleScreen {
               ? '  · no effect'
               : '';
       const btn = document.createElement('button');
-      btn.style.cssText = `padding:10px 14px;border-radius:8px;border:1px solid ${
-        AFFINITY_COLOR[skill.affinity.tag] ?? '#3a4760'
-      };background:#1a2030;color:#e8ecf5;cursor:pointer;text-align:left;font-size:14px;`;
+      btn.style.cssText = `padding:10px 14px;border-radius:8px;border:1px solid ${affinityColor(
+        skill.affinity.tag,
+      )};background:#1a2030;color:#e8ecf5;cursor:pointer;text-align:left;font-size:14px;`;
       btn.innerHTML = `<b>${skill.name}</b>  <span style="opacity:0.6">${skill.affinity.tag} · ${skill.power}</span><span style="opacity:0.75">${hint}</span>`;
       btn.dataset.skill = String(id); // test hook for the e2e
       btn.onclick = () => this.#net.submitAction(id);

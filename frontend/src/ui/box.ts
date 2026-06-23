@@ -5,6 +5,7 @@
 
 import type { NetHandle } from '../net/connection';
 import type { Monster } from '../module_bindings/types';
+import { affinityColor } from './affinity';
 
 const PARTY_SIZE = 3;
 
@@ -16,18 +17,6 @@ const LABEL_STYLE =
  *  level + perfect potential + training, with our derive_stats formula). A bar is thus "absolute
  *  strength" and fills as the monster is raised — a level-1 starter reads as short on purpose. */
 const STAT_BAR_MAX = 255;
-
-/** A stand-in colour per affinity so same-species monsters read distinctly until real art exists. */
-const AFFINITY_COLOR: Record<string, string> = {
-  Neutral: '#9aa3b2',
-  Fire: '#e2553c',
-  Water: '#2f8fe0',
-  Nature: '#5cbf5c',
-  Electric: '#e6c534',
-  Earth: '#b8865a',
-  Light: '#f0e08a',
-  Dark: '#7a5fb0',
-};
 
 export class BoxScreen {
   #net: NetHandle;
@@ -82,8 +71,7 @@ export class BoxScreen {
   }
 
   #affinityColor(m: Monster): string {
-    const tag = this.#net.species(m.speciesId)?.primaryAffinity.tag ?? 'Neutral';
-    return AFFINITY_COLOR[tag] ?? '#9aa3b2';
+    return affinityColor(this.#net.species(m.speciesId)?.primaryAffinity.tag ?? 'Neutral');
   }
 
   #render(): void {

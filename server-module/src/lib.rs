@@ -13,11 +13,12 @@
 
 use game_core::{
     apply_move, battle_xp_reward, derive_stats, level_for_xp, load_skills, load_species,
-    load_type_chart, npc_decide, pick_best_skill, poc_map, resolve_turn, roll_starter, ActionState,
-    Affinity, BattleMonster, BattleOutcome, BattleSide, BattleState, Category, CharacterState,
-    Direction, Effectiveness, Level, Millis, MonsterInstance, MoveInput, NpcParams, Potential,
-    Skill as CoreSkill, Species as CoreSpecies, SpeciesId, StatBlock, Temperament, TileMap,
-    TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
+    load_type_chart, npc_decide, pick_best_skill, poc_map, resolve_turn, roll_individuality,
+    roll_starter, ActionState, Affinity, BattleMonster, BattleOutcome, BattleSide, BattleState,
+    Category, CharacterState, Direction, Effectiveness, Level, Millis, MonsterInstance, MoveInput,
+    NpcParams, Potential, Skill as CoreSkill, Species as CoreSpecies, SpeciesId, StatBlock,
+    Temperament, TileMap, TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP,
+    STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, Table};
@@ -384,38 +385,18 @@ fn type_chart_from_db(ctx: &ReducerContext) -> TypeChart {
     }
 }
 
-/// A combatant built from an owned monster (starts the battle at full HP — M7 has no persistent
-/// battle damage yet).
-fn battle_monster_from(m: &Monster, species: &Species) -> BattleMonster {
+/// Build a combatant from a derived stat block. Starts at full HP (M7 has no persistent battle
+/// damage). Only the primary affinity is used in combat for M7 (secondary affinities are deferred).
+fn battle_monster(
+    species_id: u32,
+    level: u8,
+    affinity: Affinity,
+    derived: &StatBlock,
+) -> BattleMonster {
     BattleMonster {
-        species_id: m.species_id,
-        level: m.level,
-        affinity: species.primary_affinity,
-        attack: m.derived.attack,
-        defense: m.derived.defense,
-        special: m.derived.special,
-        speed: m.derived.speed,
-        max_hp: m.derived.hp,
-        current_hp: m.derived.hp,
-    }
-}
-
-/// Roll a wild enemy combatant of `species` at `level` (genes/temperament via `ctx.rng()`).
-fn roll_wild(ctx: &ReducerContext, species: &Species, level: u8) -> BattleMonster {
-    let core = core_species(species);
-    let mut next = || ctx.random::<u32>();
-    let inst = roll_starter(&core, &mut next); // reused for its rolled potential/temperament
-    let derived = derive_stats(
-        &core,
-        &inst.potential,
-        &inst.training,
-        inst.temperament,
-        Level(level),
-    );
-    BattleMonster {
-        species_id: species.species_id,
+        species_id,
         level,
-        affinity: species.primary_affinity,
+        affinity,
         attack: derived.attack,
         defense: derived.defense,
         special: derived.special,
@@ -423,6 +404,30 @@ fn roll_wild(ctx: &ReducerContext, species: &Species, level: u8) -> BattleMonste
         max_hp: derived.hp,
         current_hp: derived.hp,
     }
+}
+
+/// A combatant built from an owned monster (its stored derived stats).
+fn battle_monster_from(m: &Monster, species: &Species) -> BattleMonster {
+    battle_monster(m.species_id, m.level, species.primary_affinity, &m.derived)
+}
+
+/// Roll a wild enemy combatant of `species` at `level` (genes/temperament via `ctx.rng()`).
+fn roll_wild(ctx: &ReducerContext, species: &Species, level: u8) -> BattleMonster {
+    let core = core_species(species);
+    let (potential, temperament) = roll_individuality(&mut || ctx.random::<u32>());
+    let derived = derive_stats(
+        &core,
+        &potential,
+        &Training::default(),
+        temperament,
+        Level(level),
+    );
+    battle_monster(
+        species.species_id,
+        level,
+        species.primary_affinity,
+        &derived,
+    )
 }
 
 /// Award XP to each of the caller's party monsters on a win: bump xp, recompute level + derived
@@ -820,18 +825,17 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
         .filter_map(|&id| ctx.db.skill().skill_id().find(id))
         .map(|r| core_skill(&r))
         .collect();
-    let enemy_skill = if enemy_skills.is_empty() {
-        player_skill.clone() // content guarantees a learnset; defensive fallback
-    } else {
-        let idx = pick_best_skill(
-            battle.state.enemy.active_ref(),
-            battle.state.player.active_ref(),
-            &enemy_skills,
-            &chart,
-            ctx.random::<u32>(),
-        );
-        enemy_skills[idx].clone()
-    };
+    if enemy_skills.is_empty() {
+        return Err("enemy has no skills".to_string()); // content guarantees a learnset (fail-fast)
+    }
+    let enemy_skill = enemy_skills[pick_best_skill(
+        battle.state.enemy.active_ref(),
+        battle.state.player.active_ref(),
+        &enemy_skills,
+        &chart,
+        ctx.random::<u32>(),
+    )]
+    .clone();
 
     let new_state = resolve_turn(
         &battle.state,

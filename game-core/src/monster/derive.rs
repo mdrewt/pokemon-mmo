@@ -71,7 +71,10 @@ pub fn level_for_xp(xp: Xp) -> Level {
 /// wraps `ctx.rng()`); it is consumed in a fixed order — the five potential genes (hp, attack,
 /// defense, special, speed) then the temperament — so the result is deterministic for a given
 /// sequence. Begins at level 1, empty training, full HP.
-pub fn roll_starter(species: &Species, next_u32: &mut dyn FnMut() -> u32) -> MonsterInstance {
+/// Roll just the innate individuality (per-stat genes + temperament) from the seeded source. Shared
+/// by starter rolls and wild encounters (which derive their stats at their own level), consumed in a
+/// fixed order — the five genes (hp, attack, defense, special, speed) then the temperament.
+pub fn roll_individuality(next_u32: &mut dyn FnMut() -> u32) -> (Potential, Temperament) {
     let gene = |n: &mut dyn FnMut() -> u32| (n() % (Potential::MAX as u32 + 1)) as u8;
     let potential = Potential {
         hp: gene(next_u32),
@@ -81,6 +84,11 @@ pub fn roll_starter(species: &Species, next_u32: &mut dyn FnMut() -> u32) -> Mon
         speed: gene(next_u32),
     };
     let temperament = Temperament::ALL[(next_u32() as usize) % Temperament::ALL.len()];
+    (potential, temperament)
+}
+
+pub fn roll_starter(species: &Species, next_u32: &mut dyn FnMut() -> u32) -> MonsterInstance {
+    let (potential, temperament) = roll_individuality(next_u32);
 
     let level = Level(1);
     let training = Training::default();
