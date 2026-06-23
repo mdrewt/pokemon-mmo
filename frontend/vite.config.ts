@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
@@ -10,5 +10,11 @@ export default defineConfig({
   plugins: [wasm(), topLevelAwait()],
   build: {
     target: 'esnext',
+  },
+  // Vitest runs the pure unit tests under src/ only. The Playwright e2e (e2e/*.spec.ts) uses its
+  // own runner — without this, vitest's default *.spec.ts glob would try to load it and fail
+  // ("Playwright Test did not expect test.describe() to be called here").
+  test: {
+    include: ['src/**/*.{test,spec}.ts'],
   },
 });
