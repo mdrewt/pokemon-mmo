@@ -474,7 +474,9 @@ fn persist_party_hp(ctx: &ReducerContext, battle: &Battle) {
             continue;
         };
         if let Some(mut m) = ctx.db.monster().monster_id().find(monster_id) {
-            if m.current_hp != combatant.current_hp {
+            // Re-check ownership against current state (not just the battle-time snapshot) so a
+            // future trade/transfer can't make this write land on someone else's monster.
+            if m.owner_identity == battle.player_identity && m.current_hp != combatant.current_hp {
                 m.current_hp = combatant.current_hp;
                 ctx.db.monster().monster_id().update(m);
             }
