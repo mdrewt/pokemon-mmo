@@ -13,7 +13,7 @@
     "dev:client": "npm --prefix frontend run dev",
     "dev:server": "spacetime dev",
     "check": "cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warnings && npm --prefix frontend run typecheck && npm --prefix frontend run lint",
-    "test": "cargo test --workspace && npm --prefix frontend exec -- vitest run --passWithNoTests",
+    "test": "cargo test --workspace && npm --prefix frontend exec -- vitest run --root frontend --passWithNoTests",
     "test:e2e": "npm --prefix frontend run test:e2e",
     "fmt": "cargo fmt --all"
   },
