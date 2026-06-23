@@ -26,6 +26,8 @@ export interface GameCharSnapshot {
 
 export interface GameSnapshot {
   status: string;
+  /** game-core STEP_MS (drain/tick cadence) — surfaced so the e2e doesn't hard-code it. */
+  stepMs: number;
   identityHex: string | null;
   ownEntityId: string | null;
   /** player.last_input_seq (highest acked input), as a string. */
@@ -45,7 +47,11 @@ declare global {
 }
 
 /** Attach `window.__game` returning a fresh snapshot on each call. Dev/test only. */
-export function installIntrospection(net: NetHandle, getPredictor: () => Predictor | null): void {
+export function installIntrospection(
+  net: NetHandle,
+  getPredictor: () => Predictor | null,
+  stepMs: number,
+): void {
   window.__game = (): GameSnapshot => {
     const ownId = net.ownEntityId();
     const predictor = getPredictor();
@@ -74,6 +80,7 @@ export function installIntrospection(net: NetHandle, getPredictor: () => Predict
 
     return {
       status: net.status(),
+      stepMs,
       identityHex: net.identityHex() ?? null,
       ownEntityId: ownId === undefined ? null : ownId.toString(),
       ackedSeq: net.ackedSeq().toString(),

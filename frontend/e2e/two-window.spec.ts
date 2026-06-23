@@ -14,8 +14,11 @@
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import type { GameSnapshot, GameCharSnapshot } from '../src/test/introspect';
 
-const STEP_MS = 200; // mirror game-core STEP_MS (drain/tick cadence)
 type DirKey = 'KeyW' | 'KeyA' | 'KeyS' | 'KeyD';
+
+// game-core's STEP_MS, read once from the introspection hook in beforeAll (not hard-coded — it is
+// the single source of truth for the drain/tick cadence; see ARCHITECTURE.md "rules written once").
+let stepMs = 0;
 
 async function snapshot(page: Page): Promise<GameSnapshot> {
   return page.evaluate(() => window.__game!());
@@ -47,7 +50,7 @@ async function join(page: Page, name: string): Promise<void> {
   await page.locator('#app').click();
 }
 
-/** Tap a key once (held < STEP_MS so it's a single step, not a sustained hold). */
+/** Tap a key once (held < stepMs so it's a single step, not a sustained hold). */
 async function tap(page: Page, code: string): Promise<void> {
   await page.keyboard.down(code);
   await page.waitForTimeout(60);
@@ -77,18 +80,18 @@ async function settle(page: Page): Promise<void> {
  *  frame. */
 async function stepDir(page: Page, key: DirKey): Promise<{ x: number; y: number }> {
   await tap(page, key);
-  await page.waitForTimeout(STEP_MS + 120);
+  await page.waitForTimeout(stepMs + 120);
   await settle(page);
   return ownTile(page);
 }
 
-/** Step each direction until the own tile actually changes; returns the working key. */
-async function stepAnyOpenDir(page: Page): Promise<DirKey> {
+/** Step each direction until the own tile actually changes (throws if boxed in). */
+async function stepAnyOpenDir(page: Page): Promise<void> {
   const dirs: DirKey[] = ['KeyD', 'KeyS', 'KeyA', 'KeyW'];
   for (const key of dirs) {
     const before = await ownTile(page);
     const after = await stepDir(page, key);
-    if (after.x !== before.x || after.y !== before.y) return key;
+    if (after.x !== before.x || after.y !== before.y) return;
   }
   throw new Error('character could not move in any direction (boxed in?)');
 }
@@ -108,7 +111,9 @@ test.describe.serial('two-window integration', () => {
     pageB = await ctxB.newPage();
     await join(pageA, 'Ash');
     await join(pageB, 'Misty');
-    idA = (await snapshot(pageA)).ownEntityId!;
+    const gA = await snapshot(pageA);
+    stepMs = gA.stepMs;
+    idA = gA.ownEntityId!;
     idB = (await snapshot(pageB)).ownEntityId!;
   });
 
@@ -184,10 +189,12 @@ test.describe.serial('two-window integration', () => {
     await stepDir(pageA, 'KeyD');
     const before = await ownTile(pageA);
     await tap(pageA, 'Space');
-    await pageA.waitForTimeout(STEP_MS + 120);
+    // Poll for the specific landing tile (one East) so we wait exactly until the jump resolves.
+    await expect.poll(async () => (await ownTile(pageA)).x).toBe(before.x + 1);
     await settle(pageA);
-    const after = await ownTile(pageA);
-    expect(after).toEqual({ x: before.x + 1, y: before.y });
+    const g = await snapshot(pageA);
+    expect({ x: own(g).tileX, y: own(g).tileY }).toEqual({ x: before.x + 1, y: before.y });
+    expect(g.predicted).toMatchObject({ x: own(g).tileX, y: own(g).tileY });
     // The jump syncs to B as well.
     await expect
       .poll(async () => {

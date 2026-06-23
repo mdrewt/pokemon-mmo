@@ -81,7 +81,7 @@ async function bootstrap(): Promise<void> {
   // Dev/test-only: expose a read-only state snapshot for the two-window Playwright e2e (M5).
   // Stripped from production builds (gated on import.meta.env.DEV).
   if (import.meta.env.DEV) {
-    installIntrospection(net, () => predictor);
+    installIntrospection(net, () => predictor, step);
   }
 
   // Reconcile only when the authoritative own character row OR the ack actually changes (they
