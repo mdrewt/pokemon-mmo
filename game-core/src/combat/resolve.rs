@@ -364,4 +364,15 @@ mod tests {
         assert!(battle_xp_reward(30) > battle_xp_reward(10));
         assert!(battle_xp_reward(0) >= 1);
     }
+
+    #[test]
+    fn resolve_turn_is_deterministic() {
+        let state = BattleState::new(
+            BattleSide::new(vec![mon(100, 200)]),
+            BattleSide::new(vec![mon(90, 200)]),
+        );
+        let a = resolve_turn(&state, &tackle(), &tackle(), &empty_chart(), 7, 9);
+        let b = resolve_turn(&state, &tackle(), &tackle(), &empty_chart(), 7, 9);
+        assert_eq!(a, b);
+    }
 }
