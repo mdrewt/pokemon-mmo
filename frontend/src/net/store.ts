@@ -5,7 +5,7 @@
 //
 // No Pixi, no wasm here — just plain data + a tiny event fan-out.
 
-import type { Character, Player } from '../module_bindings/types';
+import type { Character, Monster, Player, Species } from '../module_bindings/types';
 
 /** A character row plus the local wall-clock time we received this version of it. */
 export interface StoredCharacter {
@@ -25,12 +25,42 @@ export class AuthoritativeStore {
   readonly characters = new Map<bigint, StoredCharacter>();
   readonly playersByIdentity = new Map<string, Player>();
   readonly playersByEntity = new Map<bigint, Player>();
+  /** Species templates, keyed by speciesId. Read-only content seeded by the server. */
+  readonly species = new Map<number, Species>();
+  /** Owned monsters in scope, keyed by monsterId. */
+  readonly monsters = new Map<bigint, Monster>();
 
   #charListeners = new Set<CharacterListener>();
+  /** Fired on any species/monster change so the box UI can re-render (it's not real-time). */
+  #monsterListeners = new Set<() => void>();
 
   onCharacterEvent(fn: CharacterListener): () => void {
     this.#charListeners.add(fn);
     return () => this.#charListeners.delete(fn);
+  }
+
+  /** Subscribe to species/monster changes; returns an unsubscribe fn. */
+  onMonsterChange(fn: () => void): () => void {
+    this.#monsterListeners.add(fn);
+    return () => this.#monsterListeners.delete(fn);
+  }
+
+  #emitMonsterChange(): void {
+    for (const fn of this.#monsterListeners) fn();
+  }
+
+  upsertSpecies(row: Species): void {
+    this.species.set(row.speciesId, row);
+    this.#emitMonsterChange();
+  }
+
+  upsertMonster(row: Monster): void {
+    this.monsters.set(row.monsterId, row);
+    this.#emitMonsterChange();
+  }
+
+  removeMonster(monsterId: bigint): void {
+    if (this.monsters.delete(monsterId)) this.#emitMonsterChange();
   }
 
   #emit(ev: CharacterEvent): void {

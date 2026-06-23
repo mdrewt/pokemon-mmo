@@ -219,6 +219,25 @@ test.describe.serial('two-window integration', () => {
     }
   });
 
+  test('each player is granted one starter monster in party slot 0 (M6)', async () => {
+    for (const page of [pageA, pageB]) {
+      await expect.poll(async () => (await snapshot(page)).monsters.length).toBe(1);
+      const starter = (await snapshot(page)).monsters[0]!;
+      expect(starter.partySlot).toBe(0);
+      expect(starter.level).toBe(1);
+      expect(starter.speciesId).toBeGreaterThan(0);
+    }
+  });
+
+  test('pressing B opens the box showing the starter party (M6)', async () => {
+    await pageA.locator('#app').click(); // ensure the page (not a stale element) has focus
+    await pageA.keyboard.press('KeyB');
+    await expect(pageA.locator('#box-screen')).toBeVisible();
+    await expect(pageA.locator('#box-screen')).toContainText('Party (1/3)');
+    await pageA.keyboard.press('Escape');
+    await expect(pageA.locator('#box-screen')).toBeHidden();
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

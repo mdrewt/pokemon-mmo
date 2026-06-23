@@ -12,6 +12,8 @@ import { Scene } from './render/scene';
 import { InputController } from './input/input';
 import { showNameEntry } from './ui/nameEntry';
 import { DebugHud } from './ui/hud';
+import { ScreenManager } from './ui/screen';
+import { BoxScreen } from './ui/box';
 import { characterToPredictedBaseline, moveQueueToWasm, wasmToSdkMoveInput } from './convert';
 import { installIntrospection } from './test/introspect';
 import type { WasmFacing } from './wasm';
@@ -96,6 +98,22 @@ async function bootstrap(): Promise<void> {
   // hold queues the next step at completion; a tap commits exactly one step.
   let committedDir: WasmFacing | null = null;
 
+  // Screen-state machine + the monster box overlay. Opening the box stops the character (clears the
+  // movement buffer) and gates movement input; closing returns to overworld control.
+  const screen = new ScreenManager();
+  const box = new BoxScreen(net);
+  screen.onChange((s) => {
+    if (s === 'box') {
+      box.show();
+      if (predictor) {
+        net.clearQueue(predictor.clearQueue());
+      }
+      committedDir = null;
+    } else {
+      box.hide();
+    }
+  });
+
   // Step 6: game loop, gated on wasm ready.
   app.ticker.add(() => {
     if (!isWasmReady()) return;
@@ -121,48 +139,60 @@ async function bootstrap(): Promise<void> {
         lastReceivedAt = stored.receivedAt;
         lastAcked = acked;
       }
-      const room = stored.row.moveQueue.length + predictor.pendingCount < cap;
+      // Box toggle works in any screen. Escape closes a non-overworld screen; in the overworld it
+      // is the movement stop-action.
+      if (input.takeToggleBox()) screen.toggle('box');
+      const stopPressed = input.takeClear();
+      const inOverworld = screen.current() === 'overworld';
 
-      // Stop action (Escape, placeholder for menu/interact): clear the un-started buffer now.
-      if (input.takeClear()) {
-        const seq = predictor.clearQueue();
-        net.clearQueue(seq);
-        committedDir = null;
-      }
+      if (!inOverworld) {
+        // A menu/box is open: don't drive the character. Escape returns to the overworld.
+        if (stopPressed) screen.set('overworld');
+        input.takeJump(); // consume so a queued jump doesn't fire on return
+      } else {
+        const room = stored.row.moveQueue.length + predictor.pendingCount < cap;
 
-      // Jump (one-shot): append behind the buffer if there's room.
-      if (input.takeJump() && room) {
-        const seq = predictor.enqueue('Jump');
-        net.enqueueMove(wasmToSdkMoveInput('Jump'), seq);
-      }
-
-      const dir = input.heldDir();
-      if (dir === null) {
-        // Released. Nothing is ever committed beyond the step currently animating (we only queue
-        // the next step AT completion, below), so the character simply finishes the in-progress
-        // tile and stops — no buffered move to cancel, so no clear and no snap-back race.
-        committedDir = null;
-      } else if (dir !== committedDir) {
-        // Direction changed (or first step from idle): turn responsively by REPLACING the whole
-        // un-drained buffer with the new direction (no overshoot beyond the step already animating).
-        // Not flow-gated — set_move replaces rather than grows. Skip if it's already queued (no
-        // redundant same-direction requests).
-        committedDir = dir;
-        if (predictor.lastQueuedDir() !== dir) {
-          const seq = predictor.setMove({ Step: dir });
-          net.setMove(wasmToSdkMoveInput({ Step: dir }), seq);
+        // Stop action (Escape, placeholder for menu/interact): clear the un-started buffer now.
+        if (stopPressed) {
+          const seq = predictor.clearQueue();
+          net.clearQueue(seq);
+          committedDir = null;
         }
-      } else if (
-        predictor.queueDepth === 0 &&
-        now - predictor.predicted.move_started_at >= step &&
-        room
-      ) {
-        // Sustained hold: queue the NEXT step exactly when the current one completes — never ahead
-        // of it. The drain just below applies it the same frame (back-dated, so the slide chains
-        // with no gap), and because nothing is committed past the current tile, releasing stops
-        // cleanly with no overshoot and no move for the server to race us on.
-        const seq = predictor.enqueue({ Step: dir });
-        net.enqueueMove(wasmToSdkMoveInput({ Step: dir }), seq);
+
+        // Jump (one-shot): append behind the buffer if there's room.
+        if (input.takeJump() && room) {
+          const seq = predictor.enqueue('Jump');
+          net.enqueueMove(wasmToSdkMoveInput('Jump'), seq);
+        }
+
+        const dir = input.heldDir();
+        if (dir === null) {
+          // Released. Nothing is ever committed beyond the step currently animating (we only queue
+          // the next step AT completion, below), so the character simply finishes the in-progress
+          // tile and stops — no buffered move to cancel, so no clear and no snap-back race.
+          committedDir = null;
+        } else if (dir !== committedDir) {
+          // Direction changed (or first step from idle): turn responsively by REPLACING the whole
+          // un-drained buffer with the new direction (no overshoot beyond the step already animating).
+          // Not flow-gated — set_move replaces rather than grows. Skip if it's already queued (no
+          // redundant same-direction requests).
+          committedDir = dir;
+          if (predictor.lastQueuedDir() !== dir) {
+            const seq = predictor.setMove({ Step: dir });
+            net.setMove(wasmToSdkMoveInput({ Step: dir }), seq);
+          }
+        } else if (
+          predictor.queueDepth === 0 &&
+          now - predictor.predicted.move_started_at >= step &&
+          room
+        ) {
+          // Sustained hold: queue the NEXT step exactly when the current one completes — never ahead
+          // of it. The drain just below applies it the same frame (back-dated, so the slide chains
+          // with no gap), and because nothing is committed past the current tile, releasing stops
+          // cleanly with no overshoot and no move for the server to race us on.
+          const seq = predictor.enqueue({ Step: dir });
+          net.enqueueMove(wasmToSdkMoveInput({ Step: dir }), seq);
+        }
       }
 
       // Drain AFTER input so a step queued at completion (or a tap from idle) starts this same
