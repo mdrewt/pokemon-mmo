@@ -138,7 +138,15 @@ async function bootstrap(): Promise<void> {
 
       const dir = input.heldDir();
       if (dir === null) {
-        committedDir = null; // released — the buffer drains and the character goes idle
+        if (committedDir !== null && predictor.queueDepth > 0) {
+          // Release acts like a turn-to-stop: drop the un-drained lookahead so the character halts
+          // after the step already in progress instead of drifting through buffered moves. Gated on
+          // queueDepth > 0 so we only ever cancel a move the client hasn't committed to locally
+          // either — a tap whose step has already started draining is left alone (no snap-back).
+          const seq = predictor.clearQueue();
+          net.clearQueue(seq);
+        }
+        committedDir = null;
       } else if (dir !== committedDir) {
         // Direction changed (or first step from idle): turn responsively by REPLACING the whole
         // un-drained buffer with the new direction (no overshoot beyond the step already animating).
