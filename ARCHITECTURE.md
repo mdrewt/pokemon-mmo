@@ -236,7 +236,14 @@ radius spans `client-wasm` + `server-module`). Dev note: an incompatible schema 
 `client-wasm` · M4 `frontend` (+ dev debug HUD) · M5 two-window integration.
 
 **Game (in progress):** M6 monster foundation & individuality (data model + RON content + box/party,
-done) · M7 battle · M8 finding & taming · M9 raising · M10 evolution & fusion · M11 multiplayer.
+done) · M7 battle (turn-based, server-resolved, type chart + readable core, done) · M8 finding &
+taming · M9 raising · M10 evolution & fusion · M11 multiplayer.
+
+Battles are **turn-based and server-resolved** — unlike movement there is NO client prediction; the
+client submits a skill id (intent) and animates the authoritative `BattleState` from its
+subscription. The combat rule (damage, type chart, turn resolution, AI) lives only in
+`game-core::combat`; effectiveness *hints* in the UI are a lookup on the subscribed `type_relation`
+data, not a duplicated rule.
 One PR per milestone → CI + reviews → merge. (See the project plan/memory for the full vision.)
 
 ### Frontend screen state (M6+)

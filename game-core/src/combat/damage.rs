@@ -28,21 +28,23 @@ pub fn damage(
     if effectiveness == Effectiveness::NoEffect || power == 0 {
         return 0;
     }
-    let level = attacker_level as u32;
-    let off = off.max(1) as u32;
-    let def = def.max(1) as u32;
-    let power = power as u32;
+    // u64 intermediates: the multiplications run before the divisions, so a high-power skill against
+    // a high offensive stat could otherwise overflow u32.
+    let level = attacker_level as u64;
+    let off = off.max(1) as u64;
+    let def = def.max(1) as u64;
+    let power = power as u64;
 
     // Base: ((2*level/5 + 2) * power * off / def) / 50 + 2
     let mut dmg = (2 * level / 5 + 2) * power * off / def / 50 + 2;
-    dmg = dmg * effectiveness.multiplier_pct() as u32 / 100;
+    dmg = dmg * effectiveness.multiplier_pct() as u64 / 100;
     if stab {
         dmg = dmg * 3 / 2;
     }
-    let variance = 85 + variance_roll.min(MAX_VARIANCE_ROLL) as u32; // 85..=100
+    let variance = 85 + variance_roll.min(MAX_VARIANCE_ROLL) as u64; // 85..=100
     dmg = dmg * variance / 100;
 
-    dmg.clamp(1, u16::MAX as u32) as u16
+    dmg.clamp(1, u16::MAX as u64) as u16
 }
 
 #[cfg(test)]

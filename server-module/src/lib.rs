@@ -763,7 +763,9 @@ pub fn start_battle(ctx: &ReducerContext) -> Result<(), String> {
     // A random wild species at the lead monster's level.
     let lead_level = party[0].level.max(1);
     let species: Vec<Species> = ctx.db.species().iter().collect();
-    let pick = &species[ctx.rng().gen_range(0..species.len())];
+    let pick = species
+        .get(ctx.rng().gen_range(0..species.len().max(1)))
+        .ok_or("no species content")?;
     let enemy = roll_wild(ctx, pick, lead_level);
 
     ctx.db.battle().insert(Battle {
