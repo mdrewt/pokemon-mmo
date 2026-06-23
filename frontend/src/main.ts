@@ -13,7 +13,6 @@ import { showNameEntry } from './ui/nameEntry';
 import { DebugHud } from './ui/hud';
 import { characterToPredictedBaseline, wasmToSdkMoveInput } from './convert';
 import type { WasmMoveInput } from './wasm';
-import type { CharacterEvent } from './net/store';
 
 async function bootstrap(): Promise<void> {
   // Step 1: prediction wasm. Must be ready before any predict call or the loop runs.
@@ -58,19 +57,11 @@ async function bootstrap(): Promise<void> {
     );
   };
 
-  // Reconcile the predictor whenever our authoritative character row updates. The
-  // authoritative tile/facing/action is truth; the baseline clock is rebased locally so the
-  // cooldown check never spuriously fires on the epoch-vs-perf-clock mismatch.
-  net.store.onCharacterEvent((ev: CharacterEvent) => {
-    tryInitPredictor();
-    if (!predictor || ev.kind === 'delete') return;
-    const ownId = net.ownEntityId();
-    if (ownId === undefined || ev.entityId !== ownId) return;
-    predictor.reconcile(
-      characterToPredictedBaseline(ev.char.row, performance.now(), step),
-      net.ackedSeq(),
-    );
-  });
+  // Reconciliation runs once per frame in the game loop (below), NOT in a table callback: the
+  // authoritative tile (character row) and the ack (player.lastInputSeq) update in SEPARATE
+  // callbacks whose order isn't guaranteed, so reconciling inside one would read a stale ack and
+  // replay an already-acked input (predicting a tile too far). Reading both after the whole
+  // subscription batch has applied keeps them consistent.
 
   // Step 5: scene (loads spritesheet -> AnimatedSprite path).
   const scene = await Scene.create(
@@ -105,6 +96,18 @@ async function bootstrap(): Promise<void> {
   // Step 6: game loop, gated on wasm ready.
   app.ticker.add(() => {
     if (!isWasmReady()) return;
+    tryInitPredictor();
+    // Reconcile against the authoritative own character + ack, read together after the batch.
+    if (predictor) {
+      const ownId = net.ownEntityId();
+      const stored = ownId === undefined ? undefined : net.store.characters.get(ownId);
+      if (stored) {
+        predictor.reconcile(
+          characterToPredictedBaseline(stored.row, performance.now(), step),
+          net.ackedSeq(),
+        );
+      }
+    }
     input.tick();
     hud.update();
   });
