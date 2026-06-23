@@ -15,11 +15,6 @@ import { DebugHud } from './ui/hud';
 import { characterToPredictedBaseline, moveQueueToWasm, wasmToSdkMoveInput } from './convert';
 import type { WasmFacing } from './wasm';
 
-// While holding, queue the NEXT step only once the current step is this far through its slide.
-// This keeps exactly one move of lookahead (smooth) while bounding how far the character drifts
-// past where you release: smaller = more responsive (less overshoot), larger = smoother. Tunable.
-const LOOKAHEAD_FRACTION = 0.5;
-
 async function bootstrap(): Promise<void> {
   // Step 1: prediction wasm. Must be ready before any drain or the loop runs.
   await initWasm();
@@ -119,8 +114,6 @@ async function bootstrap(): Promise<void> {
         lastReceivedAt = stored.receivedAt;
         lastAcked = acked;
       }
-      predictor.drain(now);
-
       const room = stored.row.moveQueue.length + predictor.pendingCount < cap;
 
       // Stop action (Escape, placeholder for menu/interact): clear the un-started buffer now.
@@ -138,14 +131,9 @@ async function bootstrap(): Promise<void> {
 
       const dir = input.heldDir();
       if (dir === null) {
-        if (committedDir !== null && predictor.queueDepth > 0) {
-          // Release acts like a turn-to-stop: drop the un-drained lookahead so the character halts
-          // after the step already in progress instead of drifting through buffered moves. Gated on
-          // queueDepth > 0 so we only ever cancel a move the client hasn't committed to locally
-          // either — a tap whose step has already started draining is left alone (no snap-back).
-          const seq = predictor.clearQueue();
-          net.clearQueue(seq);
-        }
+        // Released. Nothing is ever committed beyond the step currently animating (we only queue
+        // the next step AT completion, below), so the character simply finishes the in-progress
+        // tile and stops — no buffered move to cancel, so no clear and no snap-back race.
         committedDir = null;
       } else if (dir !== committedDir) {
         // Direction changed (or first step from idle): turn responsively by REPLACING the whole
@@ -159,15 +147,20 @@ async function bootstrap(): Promise<void> {
         }
       } else if (
         predictor.queueDepth === 0 &&
-        now - predictor.predicted.move_started_at >= step * LOOKAHEAD_FRACTION &&
+        now - predictor.predicted.move_started_at >= step &&
         room
       ) {
-        // Sustained hold: queue exactly ONE lookahead step, and only once the current step is past
-        // LOOKAHEAD_FRACTION of its slide — so movement stays smooth but releasing overshoots by at
-        // most one tile (and usually zero, if you let go before the midpoint).
+        // Sustained hold: queue the NEXT step exactly when the current one completes — never ahead
+        // of it. The drain just below applies it the same frame (back-dated, so the slide chains
+        // with no gap), and because nothing is committed past the current tile, releasing stops
+        // cleanly with no overshoot and no move for the server to race us on.
         const seq = predictor.enqueue({ Step: dir });
         net.enqueueMove(wasmToSdkMoveInput({ Step: dir }), seq);
       }
+
+      // Drain AFTER input so a step queued at completion (or a tap from idle) starts this same
+      // frame — otherwise it would drain one frame late and the slide would visibly hitch.
+      predictor.drain(now);
     }
 
     hud.update();
