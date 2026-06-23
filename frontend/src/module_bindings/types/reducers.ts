@@ -6,9 +6,9 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
+import EnqueueMoveReducer from "../enqueue_move_reducer";
 import JoinGameReducer from "../join_game_reducer";
-import SubmitInputReducer from "../submit_input_reducer";
 
+export type EnqueueMoveParams = __Infer<typeof EnqueueMoveReducer>;
 export type JoinGameParams = __Infer<typeof JoinGameReducer>;
-export type SubmitInputParams = __Infer<typeof SubmitInputReducer>;
 

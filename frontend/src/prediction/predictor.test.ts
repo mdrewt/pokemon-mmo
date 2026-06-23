@@ -1,146 +1,125 @@
-// Unit tests for the prediction/reconciliation state machine against a FAKE authoritative
-// stream with a MOCKED predict_input. No wasm is loaded in node — the movement rule itself
-// is tested in game-core (Rust); here we only test sequencing, ack-drop, replay, and snap.
+// Unit tests for the move-buffer prediction state machine with a MOCKED apply_move. No wasm is
+// loaded in node — the movement rule itself is tested in game-core (Rust); here we only test the
+// queue buffering, the STEP_MS drain cadence, and reconciliation (ack-drop + replay + snap).
 
-import { describe, it, expect, vi } from 'vitest';
-import { Predictor, type PredictFn } from './predictor';
-import type { WasmCharacterState, WasmMoveInput, WasmFacing } from '../wasm';
+import { describe, it, expect } from 'vitest';
+import { Predictor, type ApplyMoveFn } from './predictor';
+import type { WasmCharacterState, WasmFacing, WasmMoveInput } from '../wasm';
 
-function state(x: number, y: number, facing: WasmFacing = 'South'): WasmCharacterState {
-  return { pos: { x, y }, facing, action: 'Idle', move_started_at: 0 };
-}
-
-/** A deterministic mock rule: Step moves one tile in the given direction; Jump no-ops. */
-const DELTA: Record<WasmFacing, { x: number; y: number }> = {
-  North: { x: 0, y: -1 },
-  South: { x: 0, y: 1 },
-  East: { x: 1, y: 0 },
-  West: { x: -1, y: 0 },
+const DELTA: Record<WasmFacing, [number, number]> = {
+  North: [0, -1],
+  South: [0, 1],
+  East: [1, 0],
+  West: [-1, 0],
 };
 
-const mockStep: PredictFn = (s, input, now) => {
+// Mock of game-core's apply_move: Step/Jump move one tile in the (new) facing; sets
+// move_started_at = now. Lets the queue/drain/reconcile logic be tested without the wasm.
+const mockApply: ApplyMoveFn = (state, input: WasmMoveInput, now) => {
+  const next: WasmCharacterState = { ...state, pos: { ...state.pos }, move_started_at: now };
   if (input === 'Jump') {
-    return { ...s, action: 'Jumping', move_started_at: now };
+    const [dx, dy] = DELTA[state.facing];
+    next.pos = { x: state.pos.x + dx, y: state.pos.y + dy };
+    next.action = 'Jumping';
+  } else {
+    next.facing = input.Step;
+    const [dx, dy] = DELTA[input.Step];
+    next.pos = { x: state.pos.x + dx, y: state.pos.y + dy };
+    next.action = 'Walking';
   }
-  const dir = input.Step;
-  const d = DELTA[dir];
-  return {
-    pos: { x: s.pos.x + d.x, y: s.pos.y + d.y },
-    facing: dir,
-    action: 'Walking',
-    move_started_at: now,
-  };
+  return next;
 };
 
-const stepWest: WasmMoveInput = { Step: 'West' };
-const stepEast: WasmMoveInput = { Step: 'East' };
+const STEP = 200;
+const initial = (): WasmCharacterState => ({
+  pos: { x: 0, y: 0 },
+  facing: 'South',
+  action: 'Idle',
+  move_started_at: 0,
+});
 
-describe('Predictor', () => {
-  it('applies an input locally and advances predicted state', () => {
-    const p = new Predictor(mockStep, state(5, 5));
-    const seq = p.applyInput(stepEast, 100);
-
-    expect(seq).toBe(1n);
-    expect(p.predicted.pos).toEqual({ x: 6, y: 5 });
-    expect(p.predicted.facing).toBe('East');
-    expect(p.pendingCount).toBe(1);
-    expect(p.nextSeq).toBe(2n);
-  });
-
-  it('assigns increasing seqs and buffers multiple pending inputs', () => {
-    const p = new Predictor(mockStep, state(0, 0));
-    expect(p.applyInput(stepEast, 0)).toBe(1n);
-    expect(p.applyInput(stepEast, 200)).toBe(2n);
-    expect(p.applyInput(stepEast, 400)).toBe(3n);
-
-    expect(p.predicted.pos).toEqual({ x: 3, y: 0 });
-    expect(p.pendingCount).toBe(3);
-  });
-
-  it('drops acked inputs on reconcile and keeps the rest', () => {
-    const p = new Predictor(mockStep, state(0, 0));
-    p.applyInput(stepEast, 0); // seq 1
-    p.applyInput(stepEast, 200); // seq 2
-    p.applyInput(stepEast, 400); // seq 3
-    expect(p.pendingCount).toBe(3);
-
-    // Server has applied seq 1; authoritative tile is now (1,0).
-    p.reconcile(state(1, 0, 'East'), 1n);
-
-    // seq 1 dropped; seqs 2 & 3 still pending and replayed from authoritative (1,0).
+describe('Predictor (server-paced move buffer)', () => {
+  it('enqueue assigns sequential seqs and buffers locally', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    expect(p.enqueue({ Step: 'East' })).toBe(1n);
+    expect(p.enqueue({ Step: 'East' })).toBe(2n);
+    expect(p.queueDepth).toBe(2);
     expect(p.pendingCount).toBe(2);
-    expect(p.predicted.pos).toEqual({ x: 3, y: 0 });
+    expect(p.nextSeq).toBe(3n);
   });
 
-  it('replay reproduces predicted state when the server agrees (no snap)', () => {
-    const p = new Predictor(mockStep, state(10, 10));
-    p.applyInput(stepWest, 0); // -> (9,10)
-    p.applyInput(stepWest, 200); // -> (8,10)
-    const before = p.predicted.pos;
+  it('drain advances at most one tile per STEP_MS', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    p.enqueue({ Step: 'East' });
+    p.enqueue({ Step: 'East' });
 
-    // Server acks seq 1 with the same result the client predicted (9,10).
-    p.reconcile(state(9, 10, 'West'), 1n);
+    p.drain(STEP); // first move is due (move_started_at started at 0)
+    expect(p.predicted.pos).toEqual({ x: 1, y: 0 });
+    expect(p.queueDepth).toBe(1);
 
-    // Replaying the remaining pending input (seq 2) lands back on (8,10): no visible snap.
-    expect(p.predicted.pos).toEqual(before);
-    expect(p.predicted.pos).toEqual({ x: 8, y: 10 });
-    expect(p.pendingCount).toBe(1);
+    p.drain(STEP + 50); // second not yet due
+    expect(p.predicted.pos).toEqual({ x: 1, y: 0 });
+
+    p.drain(2 * STEP); // now due
+    expect(p.predicted.pos).toEqual({ x: 2, y: 0 });
+    expect(p.queueDepth).toBe(0);
   });
 
-  it('snaps back to authoritative on a genuine misprediction', () => {
-    const p = new Predictor(mockStep, state(5, 5));
-    p.applyInput(stepEast, 0); // client predicts (6,5)
-    expect(p.predicted.pos).toEqual({ x: 6, y: 5 });
-
-    // Server rejected the step (e.g. wall) — it acks seq 1 but authoritative stayed (5,5).
-    p.reconcile(state(5, 5, 'East'), 1n);
-
-    // No pending inputs remain; predicted snaps to authoritative truth.
-    expect(p.pendingCount).toBe(0);
-    expect(p.predicted.pos).toEqual({ x: 5, y: 5 });
-  });
-
-  it('does not record or count an input the rule rejects locally', () => {
-    const throwing: PredictFn = vi.fn(() => {
-      throw new Error('TooSoon');
-    });
-    const p = new Predictor(throwing, state(0, 0));
-
-    const seq = p.applyInput(stepEast, 0);
-    expect(seq).toBeNull();
-    expect(p.pendingCount).toBe(0);
-    expect(p.nextSeq).toBe(1n); // counter not advanced
+  it('drain is a no-op with an empty queue', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    p.drain(10 * STEP);
     expect(p.predicted.pos).toEqual({ x: 0, y: 0 });
   });
 
-  it('drops a pending input during replay if it becomes illegal against truth', () => {
-    // Replay-time rejection: a pending input that throws when re-applied is discarded.
-    let calls = 0;
-    const sometimesThrows: PredictFn = (s, input, now) => {
-      calls += 1;
-      // The replayed (second) call throws to simulate the input now being illegal.
-      if (calls >= 2 && input !== 'Jump') throw new Error('illegal now');
-      return mockStep(s, input, now);
+  it('reconcile drops acked pending and replays the un-acked tail', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    p.enqueue({ Step: 'East' }); // seq 1
+    p.enqueue({ Step: 'East' }); // seq 2
+
+    // Server acked seq 1; authoritative moved to (1,0) with an empty server queue.
+    const auth: WasmCharacterState = {
+      pos: { x: 1, y: 0 },
+      facing: 'East',
+      action: 'Walking',
+      move_started_at: 1000,
     };
+    p.reconcile(auth, [], 1n, 1000 + STEP);
 
-    const p = new Predictor(sometimesThrows, state(0, 0));
-    p.applyInput(stepEast, 0); // seq 1, applied cleanly (calls=1)
-
-    // Reconcile with ack 0 (nothing acked) -> replay seq 1, which now throws.
-    p.reconcile(state(0, 0, 'South'), 0n);
-
-    expect(p.pendingCount).toBe(0);
-    expect(p.predicted.pos).toEqual({ x: 0, y: 0 });
+    expect(p.pendingCount).toBe(1); // seq 2 still pending
+    expect(p.predicted.pos).toEqual({ x: 2, y: 0 }); // auth (1,0) + replayed seq 2, drained
   });
 
-  it('reset clears pending and rebaselines predicted', () => {
-    const p = new Predictor(mockStep, state(0, 0));
-    p.applyInput(stepEast, 0);
-    p.applyInput(stepEast, 200);
+  it('reconcile snaps to authoritative on a misprediction', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    p.enqueue({ Step: 'East' });
+    p.drain(STEP);
+    expect(p.predicted.pos).toEqual({ x: 1, y: 0 });
 
-    p.reset(state(7, 7, 'North'));
+    // Server says the move didn't land (e.g. a bump): authoritative (0,0), acked seq 1, empty queue.
+    const auth: WasmCharacterState = {
+      pos: { x: 0, y: 0 },
+      facing: 'East',
+      action: 'Idle',
+      move_started_at: 1000,
+    };
+    p.reconcile(auth, [], 1n, 1000);
     expect(p.pendingCount).toBe(0);
-    expect(p.predicted.pos).toEqual({ x: 7, y: 7 });
-    expect(p.predicted.facing).toBe('North');
+    expect(p.predicted.pos).toEqual({ x: 0, y: 0 }); // snapped back to truth
+  });
+
+  it('rebuilds with the authoritative server queue ahead of pending', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    p.enqueue({ Step: 'South' }); // seq 1, still pending
+
+    // Authoritative at (0,0); the server already has a queued East move; our South is un-acked.
+    const auth: WasmCharacterState = {
+      pos: { x: 0, y: 0 },
+      facing: 'South',
+      action: 'Idle',
+      move_started_at: 0,
+    };
+    p.reconcile(auth, [{ Step: 'East' }], 0n, STEP); // one move due at now=STEP
+    expect(p.predicted.pos).toEqual({ x: 1, y: 0 }); // server-queued East drains first
+    expect(p.queueDepth).toBe(1); // South still queued
   });
 });

@@ -35,7 +35,7 @@ pub fn npc_decide(
         }
     }
     // No valid move (boxed in, or the only open tiles are out of radius). Idle by facing a
-    // *blocked* tile so `resolve_input` produces a no-op — never step out of the radius.
+    // *blocked* tile so `apply_move` produces a no-op — never step out of the radius.
     for i in 0..4 {
         let dir = Direction::ALL[(start + i) % 4];
         if !map.is_walkable(state.pos.step(dir)) {
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn boxed_in_npc_idles_without_leaving_radius() {
-        use crate::{resolve_input, Millis, STEP_MS};
+        use crate::{apply_move, Millis};
         // NPC at (2,2) with all four neighbors walled; the only open tiles are diagonal (and
         // unreachable by a cardinal step). It must idle in place, not escape its radius.
         let map = TileMap::from_rows(&[".....", "..#..", ".#.#.", "..#..", "....."]);
@@ -122,7 +122,7 @@ mod tests {
         let s = npc_at(TilePos { x: 2, y: 2 });
         let decision = npc_decide(&params, &s, &map, 0);
         // Whatever direction it faces, applying it must not move the NPC.
-        let after = resolve_input(&s, decision, &map, Millis(1000), STEP_MS).unwrap();
+        let after = apply_move(&s, decision, &map, Millis(1000));
         assert_eq!(after.pos, TilePos { x: 2, y: 2 }, "must idle in place");
     }
 

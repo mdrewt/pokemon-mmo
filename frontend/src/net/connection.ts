@@ -1,7 +1,7 @@
 // SpacetimeDB connection + subscription glue. Owns the live DbConnection, wires table
 // change callbacks into the AuthoritativeStore, and exposes typed reducer wrappers.
 //
-// No Pixi, no wasm here. The client sends intent (joinGame / submitInput) and mirrors
+// No Pixi, no wasm here. The client sends intent (joinGame / enqueueMove) and mirrors
 // authoritative table state; it never computes authoritative outcomes.
 
 import { DbConnection, type EventContext, type ErrorContext } from '../module_bindings';
@@ -26,7 +26,7 @@ export interface NetHandle {
   ackedSeq(): bigint;
 
   joinGame(name: string): void;
-  submitInput(input: MoveInput, seq: bigint): void;
+  enqueueMove(input: MoveInput, seq: bigint): void;
   disconnect(): void;
 }
 
@@ -131,8 +131,8 @@ export function connect(): Promise<NetHandle> {
       joinGame: (name: string) => {
         void conn.reducers.joinGame({ name });
       },
-      submitInput: (input: MoveInput, seq: bigint) => {
-        void conn.reducers.submitInput({ input, seq });
+      enqueueMove: (input: MoveInput, seq: bigint) => {
+        void conn.reducers.enqueueMove({ input, seq });
       },
       disconnect: () => conn.disconnect(),
     };

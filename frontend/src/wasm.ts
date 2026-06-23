@@ -29,6 +29,11 @@ export interface WasmCharacterState {
 /** A MoveInput as game-core serializes it: `{ Step: "West" }` or the literal `"Jump"`. */
 export type WasmMoveInput = { Step: WasmFacing } | 'Jump';
 
+/** The shared move-buffer capacity (game_core::MOVE_QUEUE_CAP). */
+export function moveQueueCap(): number {
+  return wasm.move_queue_cap();
+}
+
 /** The POC map (row-major walkability grid). */
 export interface WasmMap {
   width: number;
@@ -64,14 +69,14 @@ export function pocMap(): WasmMap {
 }
 
 /**
- * Predict the result of one input locally via game-core. Throws (string message) when the
- * input is rejected (e.g. cooldown not elapsed) — exactly mirroring the server reducer's
- * `Err`. Callers treat a throw as "no state change".
+ * Apply one (already-due) queued move locally via game-core, mirroring the server's
+ * `movement_tick` drain. Never throws for a blocked move — it's a legal in-place no-op, exactly
+ * as on the server.
  */
-export function predictInput(
+export function applyMove(
   state: WasmCharacterState,
   input: WasmMoveInput,
   now: number,
 ): WasmCharacterState {
-  return wasm.predict_input(state, input, now) as WasmCharacterState;
+  return wasm.apply_move(state, input, now) as WasmCharacterState;
 }
