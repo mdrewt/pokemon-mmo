@@ -29,6 +29,9 @@ export class InputController {
   #clearLatched = false;
   /** Set on a box-toggle press (B); consumed once by `takeToggleBox()`. */
   #toggleBoxLatched = false;
+  /** Set on a start-battle press (F); consumed once by `takeStartBattle()`. M7 manual encounter
+   *  trigger (proper encounter zones are M8). */
+  #startBattleLatched = false;
   #enabled = false;
 
   #onKeyDown = (e: KeyboardEvent): void => this.#handleKeyDown(e);
@@ -78,6 +81,13 @@ export class InputController {
     return b;
   }
 
+  /** Returns true once if start-battle (F) was pressed since the last call. */
+  takeStartBattle(): boolean {
+    const f = this.#startBattleLatched;
+    this.#startBattleLatched = false;
+    return f;
+  }
+
   #handleKeyDown(e: KeyboardEvent): void {
     if (e.repeat) return; // hold is handled by polling, not OS key-repeat
     // Ignore game keys while typing in a text field (e.g. the box rename input).
@@ -96,6 +106,10 @@ export class InputController {
     }
     if (e.code === 'KeyB') {
       this.#toggleBoxLatched = true;
+      return;
+    }
+    if (e.code === 'KeyF') {
+      this.#startBattleLatched = true;
       return;
     }
     const dir = ARROW_TO_DIR[e.code];
@@ -117,5 +131,6 @@ export class InputController {
     this.#jumpLatched = false;
     this.#clearLatched = false;
     this.#toggleBoxLatched = false;
+    this.#startBattleLatched = false;
   }
 }

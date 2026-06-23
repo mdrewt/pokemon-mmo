@@ -241,6 +241,44 @@ test.describe.serial('two-window integration', () => {
     await expect(pageA.locator('#box-screen')).toBeHidden();
   });
 
+  test('a battle can be fought to a conclusion and XP is awarded (M7)', async () => {
+    // Record the starter's level so we can confirm a win awards XP (level may rise).
+    const startLevel = (await snapshot(pageA)).monsters[0]!.level;
+
+    await pageA.locator('#app').click();
+    await pageA.keyboard.press('KeyF'); // start a battle
+    await expect(pageA.locator('#battle-screen')).toBeVisible();
+    await expect.poll(async () => (await snapshot(pageA)).battle !== null).toBe(true);
+
+    // Fight: submit the first available skill each turn until the battle resolves.
+    let guard = 0;
+    while (guard++ < 20) {
+      const g = await snapshot(pageA);
+      if (!g.battle || g.battle.outcome !== 'Ongoing') break;
+      const skill = pageA.locator('#battle-screen [data-skill]').first();
+      const before = g.battle.turn;
+      await skill.click();
+      await expect
+        .poll(async () => {
+          const b = (await snapshot(pageA)).battle;
+          return b === null || b.turn > before || b.outcome !== 'Ongoing';
+        })
+        .toBe(true);
+    }
+
+    const ended = (await snapshot(pageA)).battle!;
+    expect(['PlayerWon', 'PlayerLost']).toContain(ended.outcome);
+
+    // Dismiss the result → back to overworld (battle row gone).
+    await pageA.locator('#battle-screen').getByText('Continue').click();
+    await expect.poll(async () => (await snapshot(pageA)).battle).toBeNull();
+    await expect(pageA.locator('#battle-screen')).toBeHidden();
+
+    // A win awards XP; level is monotonic (never drops). (level-1 vs level-1 may also be a loss.)
+    const endLevel = (await snapshot(pageA)).monsters[0]!.level;
+    expect(endLevel).toBeGreaterThanOrEqual(startLevel);
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

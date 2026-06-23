@@ -5,7 +5,15 @@
 //
 // No Pixi, no wasm here — just plain data + a tiny event fan-out.
 
-import type { Character, Monster, Player, Species } from '../module_bindings/types';
+import type {
+  Battle,
+  Character,
+  Monster,
+  Player,
+  Skill,
+  Species,
+  TypeRelationRow,
+} from '../module_bindings/types';
 
 /** A character row plus the local wall-clock time we received this version of it. */
 export interface StoredCharacter {
@@ -29,10 +37,18 @@ export class AuthoritativeStore {
   readonly species = new Map<number, Species>();
   /** Owned monsters in scope, keyed by monsterId. */
   readonly monsters = new Map<bigint, Monster>();
+  /** Skill templates, keyed by skillId. Read-only content. */
+  readonly skills = new Map<number, Skill>();
+  /** Type/affinity chart rows (seeded). */
+  readonly typeRelations: TypeRelationRow[] = [];
+  /** The caller's active battle, if any (RLS-scoped to the owner — at most one). */
+  battle: Battle | undefined;
 
   #charListeners = new Set<CharacterListener>();
   /** Fired on any species/monster change so the box UI can re-render (it's not real-time). */
   #monsterListeners = new Set<() => void>();
+  /** Fired on any battle change so the battle UI can re-render. */
+  #battleListeners = new Set<() => void>();
 
   onCharacterEvent(fn: CharacterListener): () => void {
     this.#charListeners.add(fn);
@@ -61,6 +77,36 @@ export class AuthoritativeStore {
 
   removeMonster(monsterId: bigint): void {
     if (this.monsters.delete(monsterId)) this.#emitMonsterChange();
+  }
+
+  upsertSkill(row: Skill): void {
+    this.skills.set(row.skillId, row);
+  }
+
+  upsertTypeRelation(row: TypeRelationRow): void {
+    this.typeRelations.push(row);
+  }
+
+  /** Subscribe to battle changes; returns an unsubscribe fn. */
+  onBattleChange(fn: () => void): () => void {
+    this.#battleListeners.add(fn);
+    return () => this.#battleListeners.delete(fn);
+  }
+
+  #emitBattleChange(): void {
+    for (const fn of this.#battleListeners) fn();
+  }
+
+  setBattle(row: Battle): void {
+    this.battle = row;
+    this.#emitBattleChange();
+  }
+
+  clearBattle(): void {
+    if (this.battle !== undefined) {
+      this.battle = undefined;
+      this.#emitBattleChange();
+    }
   }
 
   #emit(ev: CharacterEvent): void {

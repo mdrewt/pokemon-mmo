@@ -5,7 +5,16 @@
 // authoritative table state; it never computes authoritative outcomes.
 
 import { DbConnection, type EventContext, type ErrorContext } from '../module_bindings';
-import type { Character, Monster, MoveInput, Player, Species } from '../module_bindings/types';
+import type {
+  Battle,
+  Character,
+  Monster,
+  MoveInput,
+  Player,
+  Skill,
+  Species,
+  TypeRelationRow,
+} from '../module_bindings/types';
 import type { Identity } from 'spacetimedb';
 import { AuthoritativeStore } from './store';
 
@@ -28,6 +37,10 @@ export interface NetHandle {
   ownMonsters(): Monster[];
   /** A species template by id (read-only seeded content). */
   species(speciesId: number): Species | undefined;
+  /** A skill template by id. */
+  skill(skillId: number): Skill | undefined;
+  /** The caller's active battle, if any. */
+  battle(): Battle | undefined;
 
   joinGame(name: string): void;
   enqueueMove(input: MoveInput, seq: bigint): void;
@@ -35,6 +48,9 @@ export interface NetHandle {
   clearQueue(seq: bigint): void;
   renameMonster(monsterId: bigint, name: string): void;
   setPartySlot(monsterId: bigint, slot: number | undefined): void;
+  startBattle(): void;
+  submitAction(skillId: number): void;
+  closeBattle(): void;
   disconnect(): void;
 }
 
@@ -88,6 +104,9 @@ export function connect(): Promise<NetHandle> {
             'SELECT * FROM config',
             'SELECT * FROM species',
             'SELECT * FROM monster',
+            'SELECT * FROM skill',
+            'SELECT * FROM type_relation',
+            'SELECT * FROM battle',
           ]);
       })
       .onConnectError((_ctx: ErrorContext, error: Error) => {
@@ -143,6 +162,23 @@ export function connect(): Promise<NetHandle> {
       store.removeMonster(row.monsterId);
     });
 
+    conn.db.skill.onInsert((_ctx: EventContext, row: Skill) => {
+      store.upsertSkill(row);
+    });
+    conn.db.type_relation.onInsert((_ctx: EventContext, row: TypeRelationRow) => {
+      store.upsertTypeRelation(row);
+    });
+
+    conn.db.battle.onInsert((_ctx: EventContext, row: Battle) => {
+      store.setBattle(row);
+    });
+    conn.db.battle.onUpdate((_ctx: EventContext, _old: Battle, row: Battle) => {
+      store.setBattle(row);
+    });
+    conn.db.battle.onDelete(() => {
+      store.clearBattle();
+    });
+
     const ownPlayer = (): Player | undefined => {
       const hex = identity?.toHexString();
       return hex ? store.playerByIdentityHex(hex) : undefined;
@@ -172,6 +208,8 @@ export function connect(): Promise<NetHandle> {
       ackedSeq: () => ownPlayer()?.lastInputSeq ?? 0n,
       ownMonsters,
       species: (speciesId: number) => store.species.get(speciesId),
+      skill: (skillId: number) => store.skills.get(skillId),
+      battle: () => store.battle,
       joinGame: (name: string) => {
         void conn.reducers.joinGame({ name });
       },
@@ -189,6 +227,15 @@ export function connect(): Promise<NetHandle> {
       },
       setPartySlot: (monsterId: bigint, slot: number | undefined) => {
         void conn.reducers.setPartySlot({ monsterId, slot });
+      },
+      startBattle: () => {
+        void conn.reducers.startBattle({});
+      },
+      submitAction: (skillId: number) => {
+        void conn.reducers.submitAction({ skillId });
+      },
+      closeBattle: () => {
+        void conn.reducers.closeBattle({});
       },
       disconnect: () => conn.disconnect(),
     };

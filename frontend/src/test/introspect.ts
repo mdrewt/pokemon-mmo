@@ -49,6 +49,15 @@ export interface GameSnapshot {
    *  it should equal the owned count — a regression guard against the monster table leaking others'
    *  hidden genes. */
   visibleMonsterCount: number;
+  /** The active battle, or null. */
+  battle: {
+    outcome: string;
+    turn: number;
+    playerHp: number;
+    playerMaxHp: number;
+    enemyHp: number;
+    enemyMaxHp: number;
+  } | null;
 }
 
 declare global {
@@ -113,6 +122,20 @@ export function installIntrospection(
         partySlot: m.partySlot ?? null,
       })),
       visibleMonsterCount: net.store.monsters.size,
+      battle: (() => {
+        const b = net.battle();
+        if (!b) return null;
+        const p = b.state.player.team[b.state.player.active];
+        const e = b.state.enemy.team[b.state.enemy.active];
+        return {
+          outcome: b.state.outcome.tag,
+          turn: b.state.turn,
+          playerHp: p?.currentHp ?? 0,
+          playerMaxHp: p?.maxHp ?? 0,
+          enemyHp: e?.currentHp ?? 0,
+          enemyMaxHp: e?.maxHp ?? 0,
+        };
+      })(),
     };
   };
 }
