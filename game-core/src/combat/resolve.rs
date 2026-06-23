@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::damage::damage;
-use super::model::{Category, Skill, TypeChart};
+use super::model::{Category, Effectiveness, Skill, TypeChart};
 use crate::monster::Affinity;
 
 /// One combatant — a battle-scoped snapshot of a monster (the server builds it from a `monster` row;
@@ -110,14 +110,42 @@ impl BattleState {
     }
 }
 
-/// Apply `attacker`'s `skill` to `defender` (mutates the defender's HP). Pure (variance supplied).
+/// An attack landed (for the battle log). `by_player` = the player's monster attacked.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
+pub struct AttackEvent {
+    pub by_player: bool,
+    pub skill_id: u32,
+    pub damage: u16,
+    pub effectiveness: Effectiveness,
+}
+
+/// A monster fainted (for the battle log). `player_side` = it was the player's monster.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
+pub struct FaintEvent {
+    pub player_side: bool,
+    pub species_id: u32,
+}
+
+/// One thing that happened during a turn, in order — the client renders these into the battle log
+/// (damage numbers, "X fainted!"). Stored on the battle row.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
+pub enum BattleEvent {
+    Attack(AttackEvent),
+    Fainted(FaintEvent),
+}
+
+/// Apply `attacker`'s `skill` to `defender` (mutates the defender's HP). Returns the damage dealt and
+/// the effectiveness (for the log). Pure (variance supplied).
 fn apply_attack(
     attacker: &BattleMonster,
     defender: &mut BattleMonster,
     skill: &Skill,
     chart: &TypeChart,
     variance: u8,
-) {
+) -> (u16, Effectiveness) {
     let eff = chart.effectiveness(skill.affinity, defender.affinity);
     let stab = skill.affinity == attacker.affinity;
     let dealt = damage(
@@ -130,12 +158,13 @@ fn apply_attack(
         variance,
     );
     defender.current_hp = defender.current_hp.saturating_sub(dealt);
+    (dealt, eff)
 }
 
 /// Resolve one full turn: both sides' chosen skills, applied in speed order (player wins ties), then
 /// auto-switch fainted actives and update the outcome. A side whose active faints before it acts
-/// loses its action this turn (its replacement does not act until next turn). No-op once the battle
-/// is over.
+/// loses its action this turn (its replacement does not act until next turn). Returns the new state
+/// and the ordered log events. No-op once the battle is over.
 pub fn resolve_turn(
     state: &BattleState,
     player_skill: &Skill,
@@ -143,10 +172,11 @@ pub fn resolve_turn(
     chart: &TypeChart,
     player_variance: u8,
     enemy_variance: u8,
-) -> BattleState {
+) -> (BattleState, Vec<BattleEvent>) {
     let mut next = state.clone();
+    let mut events = Vec::new();
     if next.is_over() {
-        return next;
+        return (next, events);
     }
 
     let player_first = next.player.active_ref().speed >= next.enemy.active_ref().speed;
@@ -162,25 +192,49 @@ pub fn resolve_turn(
                 continue; // fainted before acting → loses its action
             }
             let attacker = next.player.active_ref().clone();
-            apply_attack(
+            let (dmg, eff) = apply_attack(
                 &attacker,
                 next.enemy.active_mut(),
                 player_skill,
                 chart,
                 player_variance,
             );
+            events.push(BattleEvent::Attack(AttackEvent {
+                by_player: true,
+                skill_id: player_skill.id.0,
+                damage: dmg,
+                effectiveness: eff,
+            }));
+            if next.enemy.active_ref().is_fainted() {
+                events.push(BattleEvent::Fainted(FaintEvent {
+                    player_side: false,
+                    species_id: next.enemy.active_ref().species_id,
+                }));
+            }
         } else {
             if next.enemy.active_ref().is_fainted() {
                 continue;
             }
             let attacker = next.enemy.active_ref().clone();
-            apply_attack(
+            let (dmg, eff) = apply_attack(
                 &attacker,
                 next.player.active_mut(),
                 enemy_skill,
                 chart,
                 enemy_variance,
             );
+            events.push(BattleEvent::Attack(AttackEvent {
+                by_player: false,
+                skill_id: enemy_skill.id.0,
+                damage: dmg,
+                effectiveness: eff,
+            }));
+            if next.player.active_ref().is_fainted() {
+                events.push(BattleEvent::Fainted(FaintEvent {
+                    player_side: true,
+                    species_id: next.player.active_ref().species_id,
+                }));
+            }
         }
     }
 
@@ -194,7 +248,7 @@ pub fn resolve_turn(
         BattleOutcome::Ongoing
     };
     next.turn += 1;
-    next
+    (next, events)
 }
 
 /// Pick the index of the strongest of `skills` for `attacker` to use against `defender` (highest
@@ -281,10 +335,32 @@ mod tests {
             BattleSide::new(vec![mon(200, 100)]),
             BattleSide::new(vec![mon(10, 100)]),
         );
-        let next = resolve_turn(&state, &killer, &tackle(), &empty_chart(), 15, 15);
+        let (next, events) = resolve_turn(&state, &killer, &tackle(), &empty_chart(), 15, 15);
         assert_eq!(next.outcome, BattleOutcome::PlayerWon);
         // The player took no damage — the enemy never acted.
         assert_eq!(next.player.active_ref().current_hp, 100);
+        // Events: the player attacked and the enemy fainted; the enemy never got an attack event.
+        assert!(matches!(
+            events[0],
+            BattleEvent::Attack(AttackEvent {
+                by_player: true,
+                ..
+            })
+        ));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            BattleEvent::Fainted(FaintEvent {
+                player_side: false,
+                ..
+            })
+        )));
+        assert!(!events.iter().any(|e| matches!(
+            e,
+            BattleEvent::Attack(AttackEvent {
+                by_player: false,
+                ..
+            })
+        )));
     }
 
     #[test]
@@ -293,7 +369,7 @@ mod tests {
             BattleSide::new(vec![mon(100, 200)]),
             BattleSide::new(vec![mon(90, 200)]),
         );
-        let next = resolve_turn(&state, &tackle(), &tackle(), &empty_chart(), 15, 15);
+        let (next, _events) = resolve_turn(&state, &tackle(), &tackle(), &empty_chart(), 15, 15);
         assert_eq!(next.outcome, BattleOutcome::Ongoing);
         assert!(next.player.active_ref().current_hp < 200);
         assert!(next.enemy.active_ref().current_hp < 200);
@@ -309,7 +385,7 @@ mod tests {
             BattleSide::new(vec![mon(200, 100)]),
             BattleSide::new(vec![mon(10, 100), mon(10, 100)]),
         );
-        let next = resolve_turn(&state, &killer, &tackle(), &empty_chart(), 15, 15);
+        let (next, _events) = resolve_turn(&state, &killer, &tackle(), &empty_chart(), 15, 15);
         assert_eq!(next.outcome, BattleOutcome::Ongoing);
         assert_eq!(next.enemy.active, 1, "second enemy monster is now active");
         assert!(next.enemy.team[0].is_fainted());
@@ -333,8 +409,8 @@ mod tests {
             BattleSide::new(vec![mon(200, 100)]),
             BattleSide::new(vec![enemy.clone()]),
         );
-        let strong = resolve_turn(&state, &fire, &tackle(), &chart, 15, 15);
-        let weak = resolve_turn(&state, &fire, &tackle(), &empty_chart(), 15, 15);
+        let (strong, _) = resolve_turn(&state, &fire, &tackle(), &chart, 15, 15);
+        let (weak, _) = resolve_turn(&state, &fire, &tackle(), &empty_chart(), 15, 15);
         assert!(
             strong.enemy.active_ref().current_hp < weak.enemy.active_ref().current_hp,
             "super-effective hit deals more"

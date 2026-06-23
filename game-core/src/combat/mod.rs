@@ -9,6 +9,6 @@ mod resolve;
 pub use damage::{damage, MAX_VARIANCE_ROLL};
 pub use model::{Category, Effectiveness, Skill, SkillId, TypeChart, TypeRelation};
 pub use resolve::{
-    battle_xp_reward, pick_best_skill, resolve_turn, BattleMonster, BattleOutcome, BattleSide,
-    BattleState,
+    battle_xp_reward, pick_best_skill, resolve_turn, AttackEvent, BattleEvent, BattleMonster,
+    BattleOutcome, BattleSide, BattleState, FaintEvent,
 };

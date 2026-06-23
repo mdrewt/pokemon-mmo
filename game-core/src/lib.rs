@@ -19,9 +19,9 @@ mod types;
 mod world;
 
 pub use combat::{
-    battle_xp_reward, damage, pick_best_skill, resolve_turn, BattleMonster, BattleOutcome,
-    BattleSide, BattleState, Category, Effectiveness, Skill, SkillId, TypeChart, TypeRelation,
-    MAX_VARIANCE_ROLL,
+    battle_xp_reward, damage, pick_best_skill, resolve_turn, AttackEvent, BattleEvent,
+    BattleMonster, BattleOutcome, BattleSide, BattleState, Category, Effectiveness, FaintEvent,
+    Skill, SkillId, TypeChart, TypeRelation, MAX_VARIANCE_ROLL,
 };
 pub use content::{load_skills, load_species, load_type_chart, validate_content};
 pub use monster::{

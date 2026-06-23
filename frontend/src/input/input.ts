@@ -32,6 +32,9 @@ export class InputController {
   /** Set on a start-battle press (F); consumed once by `takeStartBattle()`. M7 manual encounter
    *  trigger (proper encounter zones are M8). */
   #startBattleLatched = false;
+  /** Set on a heal press (H); consumed once by `takeHeal()`. M7 on-demand heal (placeholder for a
+   *  future healing spot). */
+  #healLatched = false;
   #enabled = false;
 
   #onKeyDown = (e: KeyboardEvent): void => this.#handleKeyDown(e);
@@ -88,6 +91,13 @@ export class InputController {
     return f;
   }
 
+  /** Returns true once if heal (H) was pressed since the last call. */
+  takeHeal(): boolean {
+    const h = this.#healLatched;
+    this.#healLatched = false;
+    return h;
+  }
+
   #handleKeyDown(e: KeyboardEvent): void {
     if (e.repeat) return; // hold is handled by polling, not OS key-repeat
     // Ignore game keys while typing in a text field (e.g. the box rename input).
@@ -112,6 +122,10 @@ export class InputController {
       this.#startBattleLatched = true;
       return;
     }
+    if (e.code === 'KeyH') {
+      this.#healLatched = true;
+      return;
+    }
     const dir = ARROW_TO_DIR[e.code];
     if (!dir) return;
     e.preventDefault();
@@ -132,5 +146,6 @@ export class InputController {
     this.#clearLatched = false;
     this.#toggleBoxLatched = false;
     this.#startBattleLatched = false;
+    this.#healLatched = false;
   }
 }

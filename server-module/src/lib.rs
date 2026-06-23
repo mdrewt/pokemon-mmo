@@ -14,11 +14,11 @@
 use game_core::{
     apply_move, battle_xp_reward, derive_stats, level_bounds, load_skills, load_species,
     load_type_chart, npc_decide, pick_best_skill, poc_map, resolve_turn, roll_individuality,
-    roll_starter, ActionState, Affinity, BattleMonster, BattleOutcome, BattleSide, BattleState,
-    Category, CharacterState, Direction, Effectiveness, Level, Millis, MonsterInstance, MoveInput,
-    NpcParams, Potential, Skill as CoreSkill, Species as CoreSpecies, SpeciesId, StatBlock,
-    Temperament, TileMap, TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP,
-    STEP_MS,
+    roll_starter, ActionState, Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide,
+    BattleState, Category, CharacterState, Direction, Effectiveness, Level, Millis,
+    MonsterInstance, MoveInput, NpcParams, Potential, Skill as CoreSkill, Species as CoreSpecies,
+    SpeciesId, StatBlock, Temperament, TileMap, TilePos, Training, TypeChart, Xp,
+    MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, Table};
@@ -133,15 +133,18 @@ pub struct TypeRelationRow {
 
 /// A player's active battle (at most one). Stores the whole authoritative `BattleState`; the client
 /// reads it to render and submits actions. RLS-scoped to the owner (it carries the player's monster
-/// stats). `last_*_skill_id` are for the turn log (0 = none yet).
+/// stats).
 #[spacetimedb::table(name = battle, public)]
 pub struct Battle {
     #[primary_key]
     pub player_identity: Identity,
     pub state: BattleState,
     pub enemy_level: u8,
-    pub last_player_skill_id: u32,
-    pub last_enemy_skill_id: u32,
+    /// The player party's `monster_id`s in `state.player.team` order, so post-turn HP can be written
+    /// back to the right monster rows (persistent HP).
+    pub party_monster_ids: Vec<u64>,
+    /// The most recent turn's log events (attacks with damage, faints) — the client renders them.
+    pub last_events: Vec<BattleEvent>,
     /// XP the party gained on the most recent win (0 otherwise), and whether any party monster
     /// leveled up — shown on the victory screen.
     pub last_xp_gain: u32,
@@ -409,13 +412,14 @@ fn type_chart_from_db(ctx: &ReducerContext) -> TypeChart {
     }
 }
 
-/// Build a combatant from a derived stat block. Starts at full HP (M7 has no persistent battle
-/// damage). Only the primary affinity is used in combat for M7 (secondary affinities are deferred).
+/// Build a combatant from a derived stat block + a current HP (so battles use the monster's
+/// persistent HP). Only the primary affinity is used in combat for M7 (secondary is deferred).
 fn battle_monster(
     species_id: u32,
     level: u8,
     affinity: Affinity,
     derived: &StatBlock,
+    current_hp: u16,
 ) -> BattleMonster {
     BattleMonster {
         species_id,
@@ -426,13 +430,19 @@ fn battle_monster(
         special: derived.special,
         speed: derived.speed,
         max_hp: derived.hp,
-        current_hp: derived.hp,
+        current_hp: current_hp.min(derived.hp),
     }
 }
 
-/// A combatant built from an owned monster (its stored derived stats).
+/// A combatant built from an owned monster — using its persistent `current_hp`.
 fn battle_monster_from(m: &Monster, species: &Species) -> BattleMonster {
-    battle_monster(m.species_id, m.level, species.primary_affinity, &m.derived)
+    battle_monster(
+        m.species_id,
+        m.level,
+        species.primary_affinity,
+        &m.derived,
+        m.current_hp,
+    )
 }
 
 /// Roll a wild enemy combatant of `species` at `level` (genes/temperament via `ctx.rng()`).
@@ -446,16 +456,34 @@ fn roll_wild(ctx: &ReducerContext, species: &Species, level: u8) -> BattleMonste
         temperament,
         Level(level),
     );
+    let full = derived.hp;
     battle_monster(
         species.species_id,
         level,
         species.primary_affinity,
         &derived,
+        full,
     )
 }
 
+/// Write the player team's post-turn HP back to the monster rows (persistent HP), mapping each
+/// combatant to its row by `party_monster_ids` order.
+fn persist_party_hp(ctx: &ReducerContext, battle: &Battle) {
+    for (i, &monster_id) in battle.party_monster_ids.iter().enumerate() {
+        let Some(combatant) = battle.state.player.team.get(i) else {
+            continue;
+        };
+        if let Some(mut m) = ctx.db.monster().monster_id().find(monster_id) {
+            if m.current_hp != combatant.current_hp {
+                m.current_hp = combatant.current_hp;
+                ctx.db.monster().monster_id().update(m);
+            }
+        }
+    }
+}
+
 /// Award XP to each of the caller's party monsters on a win: bump xp, recompute level/progress/
-/// derived stats via game-core, restore HP. Returns whether any party monster leveled up.
+/// derived stats via game-core (HP is NOT restored — it persists). Returns whether any leveled up.
 fn award_battle_xp(ctx: &ReducerContext, owner: Identity, reward: u32) -> bool {
     let party: Vec<Monster> = ctx
         .db
@@ -479,7 +507,8 @@ fn award_battle_xp(ctx: &ReducerContext, owner: Identity, reward: u32) -> bool {
             m.level = level;
             m.xp_floor = xp_floor;
             m.xp_next = xp_next;
-            m.current_hp = derived.hp;
+            // HP is not restored on level-up — it persists; a level-up only raises the max.
+            m.current_hp = m.current_hp.min(derived.hp);
             m.derived = derived;
         }
         any_leveled |= m.level > before;
@@ -778,8 +807,12 @@ pub fn start_battle(ctx: &ReducerContext) -> Result<(), String> {
         return Err("no monsters in your party".to_string());
     }
     party.sort_by_key(|m| m.party_slot.unwrap_or(u8::MAX));
+    if party.iter().all(|m| m.current_hp == 0) {
+        return Err("your monsters need to heal first".to_string());
+    }
 
     let mut team = Vec::new();
+    let mut party_monster_ids = Vec::new();
     for m in &party {
         let sp = ctx
             .db
@@ -788,6 +821,7 @@ pub fn start_battle(ctx: &ReducerContext) -> Result<(), String> {
             .find(m.species_id)
             .ok_or("species missing")?;
         team.push(battle_monster_from(m, &sp));
+        party_monster_ids.push(m.monster_id);
     }
 
     // A random wild species at the lead monster's level.
@@ -798,12 +832,20 @@ pub fn start_battle(ctx: &ReducerContext) -> Result<(), String> {
         .ok_or("no species content")?;
     let enemy = roll_wild(ctx, pick, lead_level);
 
+    // Lead with the first non-fainted party monster (one exists — checked above).
+    let mut player_side = BattleSide::new(team);
+    player_side.active = player_side
+        .team
+        .iter()
+        .position(|m| m.current_hp > 0)
+        .unwrap_or(0) as u8;
+
     ctx.db.battle().insert(Battle {
         player_identity: ctx.sender,
-        state: BattleState::new(BattleSide::new(team), BattleSide::new(vec![enemy])),
+        state: BattleState::new(player_side, BattleSide::new(vec![enemy])),
         enemy_level: lead_level,
-        last_player_skill_id: 0,
-        last_enemy_skill_id: 0,
+        party_monster_ids,
+        last_events: Vec::new(),
         last_xp_gain: 0,
         leveled_up: false,
     });
@@ -871,7 +913,7 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
     )]
     .clone();
 
-    let new_state = resolve_turn(
+    let (new_state, events) = resolve_turn(
         &battle.state,
         &player_skill,
         &enemy_skill,
@@ -883,17 +925,39 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
     let won = new_state.outcome == BattleOutcome::PlayerWon;
     let enemy_level = battle.enemy_level;
     battle.state = new_state;
-    battle.last_player_skill_id = skill_id;
-    battle.last_enemy_skill_id = enemy_skill.id.0;
+    battle.last_events = events;
+    battle.last_xp_gain = 0;
+    battle.leveled_up = false;
 
-    // On a win, award XP to the party (mutating monster rows) and record the gain + level-up flag on
-    // the battle row so the victory screen can show "Gained N XP!".
+    // Persist the party's post-turn HP back to their monster rows (HP carries between battles).
+    persist_party_hp(ctx, &battle);
+
+    // On a win, award XP (mutating monster rows) and record the gain + level-up flag for the screen.
     if won {
         let gain = battle_xp_reward(enemy_level);
         battle.last_xp_gain = gain;
         battle.leveled_up = award_battle_xp(ctx, ctx.sender, gain);
     }
     ctx.db.battle().player_identity().update(battle);
+    Ok(())
+}
+
+/// Restore all the caller's monsters to full HP (a placeholder for a future healing spot / Pokémon
+/// Center — M7 lets the player heal on demand so a fainted party isn't a dead end).
+#[spacetimedb::reducer]
+pub fn heal_party(ctx: &ReducerContext) -> Result<(), String> {
+    let monsters: Vec<Monster> = ctx
+        .db
+        .monster()
+        .owner_identity()
+        .filter(ctx.sender)
+        .collect();
+    for mut m in monsters {
+        if m.current_hp != m.derived.hp {
+            m.current_hp = m.derived.hp;
+            ctx.db.monster().monster_id().update(m);
+        }
+    }
     Ok(())
 }
 

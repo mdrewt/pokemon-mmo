@@ -31,18 +31,41 @@ export const Affinity = __t.enum("Affinity", {
 });
 export type Affinity = __Infer<typeof Affinity>;
 
+export const AttackEvent = __t.object("AttackEvent", {
+  byPlayer: __t.bool(),
+  skillId: __t.u32(),
+  damage: __t.u16(),
+  get effectiveness() {
+    return Effectiveness;
+  },
+});
+export type AttackEvent = __Infer<typeof AttackEvent>;
+
 export const Battle = __t.object("Battle", {
   playerIdentity: __t.identity(),
   get state() {
     return BattleState;
   },
   enemyLevel: __t.u8(),
-  lastPlayerSkillId: __t.u32(),
-  lastEnemySkillId: __t.u32(),
+  partyMonsterIds: __t.array(__t.u64()),
+  get lastEvents() {
+    return __t.array(BattleEvent);
+  },
   lastXpGain: __t.u32(),
   leveledUp: __t.bool(),
 });
 export type Battle = __Infer<typeof Battle>;
+
+// The tagged union or sum type for the algebraic type `BattleEvent`.
+export const BattleEvent = __t.enum("BattleEvent", {
+  get Attack() {
+    return AttackEvent;
+  },
+  get Fainted() {
+    return FaintEvent;
+  },
+});
+export type BattleEvent = __Infer<typeof BattleEvent>;
 
 export const BattleMonster = __t.object("BattleMonster", {
   speciesId: __t.u32(),
@@ -138,6 +161,12 @@ export const Effectiveness = __t.enum("Effectiveness", {
   SuperEffective: __t.unit(),
 });
 export type Effectiveness = __Infer<typeof Effectiveness>;
+
+export const FaintEvent = __t.object("FaintEvent", {
+  playerSide: __t.bool(),
+  speciesId: __t.u32(),
+});
+export type FaintEvent = __Infer<typeof FaintEvent>;
 
 export const Monster = __t.object("Monster", {
   monsterId: __t.u64(),

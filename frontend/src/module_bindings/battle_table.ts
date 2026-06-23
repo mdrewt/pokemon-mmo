@@ -11,6 +11,7 @@ import {
 } from "spacetimedb";
 import {
   BattleState,
+  BattleEvent,
 } from "./types";
 
 
@@ -20,8 +21,10 @@ export default __t.row({
     return BattleState;
   },
   enemyLevel: __t.u8().name("enemy_level"),
-  lastPlayerSkillId: __t.u32().name("last_player_skill_id"),
-  lastEnemySkillId: __t.u32().name("last_enemy_skill_id"),
+  partyMonsterIds: __t.array(__t.u64()).name("party_monster_ids"),
+  get lastEvents() {
+    return __t.array(BattleEvent).name("last_events");
+  },
   lastXpGain: __t.u32().name("last_xp_gain"),
   leveledUp: __t.bool().name("leveled_up"),
 });

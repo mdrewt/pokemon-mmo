@@ -114,17 +114,44 @@ export class BattleScreen {
   #log(battle: NonNullable<ReturnType<NetHandle['battle']>>): HTMLElement {
     const el = document.createElement('div');
     el.style.cssText =
-      'align-self:center;text-align:center;min-height:20px;opacity:0.9;font-style:italic;';
-    if (battle.state.turn === 0) {
-      el.textContent = `A wild ${this.#speciesName(
-        battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
-      )} appeared!`;
-    } else {
-      const p = this.#net.skill(battle.lastPlayerSkillId)?.name ?? '—';
-      const e = this.#net.skill(battle.lastEnemySkillId)?.name ?? '—';
-      el.textContent = `You used ${p}.   The enemy used ${e}.`;
+      'align-self:center;text-align:center;min-height:40px;display:flex;flex-direction:column;gap:2px;opacity:0.9;font-style:italic;';
+    const lines =
+      battle.state.turn === 0
+        ? [
+            `A wild ${this.#speciesName(
+              battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
+            )} appeared!`,
+          ]
+        : battle.lastEvents.map((ev) => this.#eventLine(ev));
+    for (const text of lines) {
+      const line = document.createElement('div');
+      line.textContent = text;
+      el.append(line);
     }
     return el;
+  }
+
+  /** Render one turn event (an attack with its damage/effectiveness, or a faint) to a log line. */
+  #eventLine(ev: NonNullable<ReturnType<NetHandle['battle']>>['lastEvents'][number]): string {
+    if (ev.tag === 'Attack') {
+      const a = ev.value;
+      const who = a.byPlayer ? 'You' : 'The enemy';
+      const skill = this.#net.skill(a.skillId)?.name ?? 'a move';
+      const eff =
+        a.effectiveness.tag === 'SuperEffective'
+          ? " It's super effective!"
+          : a.effectiveness.tag === 'NotVeryEffective'
+            ? " It's not very effective…"
+            : a.effectiveness.tag === 'NoEffect'
+              ? ' It had no effect…'
+              : '';
+      const dmg = a.effectiveness.tag === 'NoEffect' ? '' : ` (${a.damage} dmg)`;
+      return `${who} used ${skill}!${eff}${dmg}`;
+    }
+    // Faint
+    const f = ev.value;
+    const name = this.#speciesName(f.speciesId);
+    return f.playerSide ? `Your ${name} fainted!` : `The wild ${name} fainted!`;
   }
 
   #skillMenu(player: BattleMonster, enemy: BattleMonster): HTMLElement {

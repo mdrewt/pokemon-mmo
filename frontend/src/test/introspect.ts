@@ -44,6 +44,8 @@ export interface GameSnapshot {
     nickname: string;
     level: number;
     partySlot: number | null;
+    currentHp: number;
+    maxHp: number;
   }[];
   /** Total monster rows this client has RECEIVED (not filtered). RLS scopes this to the owner, so
    *  it should equal the owned count — a regression guard against the monster table leaking others'
@@ -122,6 +124,8 @@ export function installIntrospection(
         nickname: m.nickname,
         level: m.level,
         partySlot: m.partySlot ?? null,
+        currentHp: m.currentHp,
+        maxHp: m.derived.hp,
       })),
       visibleMonsterCount: net.store.monsters.size,
       battle: (() => {

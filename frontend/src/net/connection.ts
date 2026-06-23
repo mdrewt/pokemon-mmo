@@ -51,6 +51,7 @@ export interface NetHandle {
   startBattle(): void;
   submitAction(skillId: number): void;
   closeBattle(): void;
+  healParty(): void;
   disconnect(): void;
 }
 
@@ -236,6 +237,9 @@ export function connect(): Promise<NetHandle> {
       },
       closeBattle: () => {
         void conn.reducers.closeBattle({});
+      },
+      healParty: () => {
+        void conn.reducers.healParty({});
       },
       disconnect: () => conn.disconnect(),
     };

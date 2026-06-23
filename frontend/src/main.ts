@@ -122,6 +122,17 @@ async function bootstrap(): Promise<void> {
     else if (screen.current() === 'battle') screen.set('overworld');
   });
 
+  // A small always-visible controls hint so the overworld actions are discoverable.
+  const hint = document.createElement('div');
+  hint.textContent = '[F] Fight   ·   [B] Box   ·   [H] Heal';
+  hint.style.cssText =
+    'position:fixed;left:12px;bottom:12px;padding:6px 10px;border-radius:6px;background:rgba(10,12,20,0.7);' +
+    'color:#cfd6e6;font:12px system-ui,sans-serif;z-index:800;pointer-events:none;';
+  document.body.appendChild(hint);
+  screen.onChange((s) => {
+    hint.style.display = s === 'overworld' ? 'block' : 'none';
+  });
+
   // Step 6: game loop, gated on wasm ready.
   app.ticker.add(() => {
     if (!isWasmReady()) return;
@@ -151,6 +162,7 @@ async function bootstrap(): Promise<void> {
       const toggleBox = input.takeToggleBox();
       const stopPressed = input.takeClear();
       const startBattlePressed = input.takeStartBattle();
+      const healPressed = input.takeHeal();
       const jumpPressed = input.takeJump();
       const current = screen.current();
 
@@ -162,6 +174,7 @@ async function bootstrap(): Promise<void> {
       } else {
         // Overworld.
         if (toggleBox) screen.set('box');
+        if (healPressed) net.healParty();
         if (startBattlePressed && net.battle() === undefined) net.startBattle();
         const room = stored.row.moveQueue.length + predictor.pendingCount < cap;
 
