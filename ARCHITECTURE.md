@@ -118,21 +118,81 @@ Applied with judgment, not dogma. (CLAUDE.md carries the concise version; this i
 enforcement + parity/determinism tests + review gates (`/code-review`, `/simplify`, the
 subagents).
 
-- **DRY — but not across the marshaling boundaries.** Game *rules* live once in `game-core`.
-  The thin `client-wasm` / reducer / `net` wrappers will look repetitive; that boilerplate is
-  intentional. Do not abstract it into clever generics that obscure the boundary.
-- **YAGNI — with NAMED exceptions.** Build only the POC scope; defer the [Scaling path](#scaling-path).
-  Two structures are deliberate architectural investments and must **not** be removed as
-  "over-engineering": (1) full WASM client prediction, (2) the entity/component split
-  (`character` + `player`/`npc`). They exist so taming/combat/items don't force a rewrite. Keep
-  the POC map a concrete `const` grid — don't pre-abstract a Tiled/`TileMap` loader until a
-  *second* map exists.
-- **Clean / cohesion over cleverness.** Readable, obvious code; dependency-free domain core;
-  I/O at the edges; small pure functions over clever ones.
-- **Mechanical enforcement beats vibes.** Determinism → `clippy.toml`; type/boundary safety →
-  the compiler + feature-flagged shared types; security → `reducer-security-auditor`; desync →
-  `desync-guard`; DRY/YAGNI/clarity → `/simplify`; correctness/bugs → `/code-review`. Judgment
-  fills only the gaps these cannot mechanically check.
+The through-line is **functional core / imperative shell with server authority**: `game-core`
+is a pure, deterministic core; reducers, the wasm boundary, and the frontend are the effectful
+shell. Every principle below is kept, adapted, or *rejected* by how well it serves that shape.
+This is a **curated** set on purpose — adopting all of "best practices" verbatim is harmful,
+because several genuinely conflict here (Postel vs. strict validation; OCP vs. exhaustive enums;
+full Design-by-Contract vs. KISS). Don't cargo-cult; follow the tiers.
+
+### Tier 1 — Foundational (treat as non-negotiable law)
+
+- **Single Source of Truth.** The spine. One `resolve_input`, one `STEP_MS`, one `poc_map`.
+  Every desync bug is an SSOT violation.
+- **Separation of Concerns / functional core + imperative shell.** Rules (game-core) ≠
+  persistence (reducers) ≠ prediction marshaling (client-wasm) ≠ render/input/net (frontend).
+  Rendering never owns state.
+- **Determinism & purity.** Same `(state, input, time, seed)` ⇒ same output; time/RNG passed in.
+  This is what makes prediction == authority. Enforced by `clippy.toml`.
+- **Make illegal states unrepresentable + parse, don't validate.** Enums (`Direction`),
+  newtypes (`Millis`, `TilePos`), integer-tile positions (never floats). Validate at the
+  boundary, produce typed domain values, then trust types inward.
+- **Design by Contract (lightweight).** `resolve_input`'s contract (legal→`Ok`, out-of-contract
+  →`Err`), reducer preconditions, and the determinism guarantee are contracts — expressed via
+  doc-comment invariants + `debug_assert!` + the parity tests. **Not** a runtime-contract
+  framework (that fights KISS).
+- **DRY — but NOT across marshaling boundaries.** Rules live once in `game-core`. The thin
+  `client-wasm`/reducer/`net`/`convert` wrappers are *intentionally* repetitive; do not abstract
+  that boilerplate into clever generics that obscure the boundary.
+- **YAGNI — with NAMED exceptions.** Build only current scope; defer the
+  [Scaling path](#scaling-path). Do **not** remove as "over-engineering": (1) full WASM client
+  prediction, (2) the entity/component split (`character` + `player`/`npc`). Keep the POC map a
+  concrete `const` grid until a *second* map exists.
+- **Mechanical enforcement over discipline.** Determinism → `clippy.toml`; boundaries → the
+  compiler + feature-flagged shared types; security → `reducer-security-auditor`; desync →
+  `desync-guard`; DRY/YAGNI/clarity → `/simplify`; bugs → `/code-review`. Prefer a check that
+  makes a mistake impossible over a guideline that asks people to remember.
+- **Errors are values; reducers deterministic & idempotent.** `Result` everywhere; no
+  `panic`/`unwrap` on reachable paths (SpacetimeDB may re-execute reducers).
+
+### Tier 2 — High value, apply with judgment
+
+- **Defensive programming — at trust boundaries only.** The server treats the client as hostile
+  (*reject, don't clamp*). Inside the validated pure core, defensive checks are noise — types
+  already guarantee validity.
+- **Data-driven development.** This is a *content* game: monsters, items, moves, encounter
+  tables, NPC configs, Tiled maps should be **data, not code**, driving generic systems. This is
+  the difference between scaling to a real game and a pile of hardcoded special cases.
+- **Loose coupling + SRP + DIP at seams.** SRP universally; DIP where it buys testability (the
+  `Predictor`'s injected `PredictFn` is exactly this). Don't add interfaces everywhere "for
+  flexibility" — that fights KISS in Rust.
+- **TDD for the core; behavior-focused tests generally.** game-core is built test-first (ideal
+  for pure/deterministic code). Don't pixel-test rendering. Tests read as behaviors — the useful
+  half of BDD without the Cucumber/Gherkin tooling (which is YAGNI here).
+- **KISS + Principle of Least Astonishment + Fail Fast.** Obvious code; consistent cross-boundary
+  naming/shapes; reject bad input early and loudly.
+
+### Tier 3 — Already true or minor
+
+- **Component-based / Modular** — already the model (entity/component data; crates + frontend
+  layers). Don't regress it; nothing to add.
+- **Law of Demeter** — mild; apply in our own code, but don't fight SpacetimeDB's fluent
+  `ctx.db.player().identity().find()` idiom.
+
+### Unsuitable here / inverted (to prevent cargo-culting)
+
+- **Postel's Law / Robustness Principle — INVERTED.** "Be liberal in what you accept" is the
+  opposite of a server-authoritative, hostile-client model (and a known source of security holes
+  and spec erosion). Be **strict** in what you accept (reject malformed/illegal input — already
+  the rule); keep only the "conservative in what you emit" half.
+- **Full SOLID — CHERRY-PICK.** Keep SRP and DIP-at-seams. **OCP is often counterproductive**:
+  for game rules we *want* exhaustive `match` so adding a `MoveInput`/monster variant makes the
+  compiler flag every site, not hide extension behind open/closed indirection. LSP/ISP are
+  near-no-ops in this mostly-non-OOP codebase.
+- **Uniform Access Principle — LOW value.** The Rust field-vs-method distinction is idiomatic and
+  tooling-supported; UAP adds little and getter-wrapping plain data is mildly anti-idiomatic.
+- **Heavyweight BDD / runtime contract frameworks — YAGNI.** Keep the *principles* (behavior-
+  focused tests, contracts); skip the tooling.
 
 ## Build & integration chain
 
