@@ -3,13 +3,17 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "exactOptionalPropertyTypes": true,
+    // NOTE: exactOptionalPropertyTypes is disabled because the generated SpacetimeDB 2.6
+    // TS bindings (frontend/src/module_bindings/, gitignored, do-not-edit) emit schema
+    // types that are not assignable under that flag. All hand-written frontend code
+    // typechecks cleanly with it on; only the generated bindings need it off.
+    "exactOptionalPropertyTypes": false,
     "skipLibCheck": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "noEmit": true,
     "types": ["vite/client"]
   },
   "include": ["src"]

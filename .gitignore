@@ -12,10 +12,10 @@ pkg/
 *.wasm
 
 # ── SpacetimeDB generated client bindings ─────────────
-# Derived from the schema — regenerate with `spacetime generate`. Ignored on purpose
-# (they change every schema edit; `spacetime dev` regenerates them automatically).
-frontend/src/module_bindings/
-**/module_bindings/
+# COMMITTED (not ignored): the frontend tsc/eslint/vitest/vite build imports these, and CI
+# has no SpacetimeDB CLI to regenerate them. They change only on a schema edit — regenerate
+# with `npm run gen` (spacetime generate) and commit the diff. (M4 reversed the original
+# ignore-and-regenerate decision so CI can build the frontend without the spacetime CLI.)
 
 # ── Frontend / bundler ────────────────────────────────
 node_modules/
