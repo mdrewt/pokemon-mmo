@@ -12,6 +12,11 @@ const PARTY_SIZE = 3;
 const LABEL_STYLE =
   'font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#8a94a8;';
 
+/** Bar denominator: the approximate ceiling a single combat stat reaches when fully raised (max
+ *  level + perfect potential + training, with our derive_stats formula). A bar is thus "absolute
+ *  strength" and fills as the monster is raised — a level-1 starter reads as short on purpose. */
+const STAT_BAR_MAX = 255;
+
 /** A stand-in colour per affinity so same-species monsters read distinctly until real art exists. */
 const AFFINITY_COLOR: Record<string, string> = {
   Neutral: '#9aa3b2',
@@ -205,17 +210,16 @@ export class BoxScreen {
       ]),
     );
 
-    // Combat stats as bold label + proportional bar (scaled to this monster's strongest of the
-    // four, so relative strengths read at a glance regardless of level) + tabular value.
-    const maxStat = Math.max(d.attack, d.defense, d.special, d.speed, 1);
+    // Combat stats as bold label + proportional bar (absolute strength vs STAT_BAR_MAX, so the bar
+    // fills as the monster is raised) + tabular value.
     const barColor = this.#affinityColor(m);
     const statBlock = document.createElement('div');
     statBlock.style.cssText = 'display:flex;flex-direction:column;gap:5px;margin-top:2px;';
     statBlock.append(
-      this.#statBar('Attack', d.attack, maxStat, barColor),
-      this.#statBar('Defense', d.defense, maxStat, barColor),
-      this.#statBar('Special', d.special, maxStat, barColor),
-      this.#statBar('Speed', d.speed, maxStat, barColor),
+      this.#statBar('Attack', d.attack, STAT_BAR_MAX, barColor),
+      this.#statBar('Defense', d.defense, STAT_BAR_MAX, barColor),
+      this.#statBar('Special', d.special, STAT_BAR_MAX, barColor),
+      this.#statBar('Speed', d.speed, STAT_BAR_MAX, barColor),
     );
     panel.append(statBlock);
 
@@ -285,7 +289,8 @@ export class BoxScreen {
     const track = document.createElement('div');
     track.style.cssText = 'height:8px;border-radius:4px;background:#222a38;overflow:hidden;';
     const fill = document.createElement('div');
-    fill.style.cssText = `height:100%;width:${Math.round((value / max) * 100)}%;background:${color};border-radius:4px;`;
+    const pct = Math.min(100, Math.round((value / max) * 100));
+    fill.style.cssText = `height:100%;width:${pct}%;background:${color};border-radius:4px;`;
     track.append(fill);
     const v = document.createElement('span');
     v.textContent = String(value);
