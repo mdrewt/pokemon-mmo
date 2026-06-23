@@ -27,6 +27,8 @@ export interface NetHandle {
 
   joinGame(name: string): void;
   enqueueMove(input: MoveInput, seq: bigint): void;
+  setMove(input: MoveInput, seq: bigint): void;
+  clearQueue(seq: bigint): void;
   disconnect(): void;
 }
 
@@ -133,6 +135,12 @@ export function connect(): Promise<NetHandle> {
       },
       enqueueMove: (input: MoveInput, seq: bigint) => {
         void conn.reducers.enqueueMove({ input, seq });
+      },
+      setMove: (input: MoveInput, seq: bigint) => {
+        void conn.reducers.setMove({ input, seq });
+      },
+      clearQueue: (seq: bigint) => {
+        void conn.reducers.clearQueue({ seq });
       },
       disconnect: () => conn.disconnect(),
     };

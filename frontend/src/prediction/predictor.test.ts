@@ -122,4 +122,39 @@ describe('Predictor (server-paced move buffer)', () => {
     expect(p.predicted.pos).toEqual({ x: 1, y: 0 }); // server-queued East drains first
     expect(p.queueDepth).toBe(1); // South still queued
   });
+
+  it('setMove replaces the whole un-drained buffer (responsive turn)', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    p.enqueue({ Step: 'East' });
+    p.enqueue({ Step: 'East' });
+    expect(p.queueDepth).toBe(2);
+    p.setMove({ Step: 'South' });
+    expect(p.queueDepth).toBe(1);
+    expect(p.lastQueuedDir()).toBe('South');
+  });
+
+  it('clearQueue empties the un-drained buffer', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    p.enqueue({ Step: 'East' });
+    p.clearQueue();
+    expect(p.queueDepth).toBe(0);
+  });
+
+  it('reconcile replays a pending setMove, clearing the stale authoritative queue', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    p.enqueue({ Step: 'East' }); // seq 1
+    p.setMove({ Step: 'South' }); // seq 2 — turns; locally clears the East
+
+    // Server hasn't applied either yet: authoritative still has a stale East queued, ack 0.
+    const auth: WasmCharacterState = {
+      pos: { x: 0, y: 0 },
+      facing: 'East',
+      action: 'Idle',
+      move_started_at: 0,
+    };
+    p.reconcile(auth, [{ Step: 'East' }], 0n, STEP);
+    // Replay: authQueue [East] -> enqueue East -> [East,East] -> setMove South -> [South]. One due.
+    expect(p.predicted.pos).toEqual({ x: 0, y: 1 }); // moved South, not East
+    expect(p.queueDepth).toBe(0);
+  });
 });

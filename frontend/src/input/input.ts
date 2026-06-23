@@ -24,6 +24,9 @@ export class InputController {
   #heldDirs: WasmFacing[] = [];
   /** Set on a Space press; consumed once by `takeJump()`. */
   #jumpLatched = false;
+  /** Set on a stop/cancel press (Escape); consumed once by `takeClear()`. A placeholder for the
+   *  real stop-movement actions (open menu, interact) until those exist. */
+  #clearLatched = false;
   #enabled = false;
 
   #onKeyDown = (e: KeyboardEvent): void => this.#handleKeyDown(e);
@@ -59,11 +62,22 @@ export class InputController {
     return j;
   }
 
+  /** Returns true once if a stop/cancel (Escape) was pressed since the last call. */
+  takeClear(): boolean {
+    const c = this.#clearLatched;
+    this.#clearLatched = false;
+    return c;
+  }
+
   #handleKeyDown(e: KeyboardEvent): void {
     if (e.repeat) return; // hold is handled by polling, not OS key-repeat
     if (e.code === 'Space') {
       e.preventDefault();
       this.#jumpLatched = true;
+      return;
+    }
+    if (e.code === 'Escape') {
+      this.#clearLatched = true;
       return;
     }
     const dir = ARROW_TO_DIR[e.code];
@@ -83,5 +97,6 @@ export class InputController {
   #clear(): void {
     this.#heldDirs = [];
     this.#jumpLatched = false;
+    this.#clearLatched = false;
   }
 }

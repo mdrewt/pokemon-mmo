@@ -13,7 +13,7 @@ import { InputController } from './input/input';
 import { showNameEntry } from './ui/nameEntry';
 import { DebugHud } from './ui/hud';
 import { characterToPredictedBaseline, moveQueueToWasm, wasmToSdkMoveInput } from './convert';
-import type { WasmFacing, WasmMoveInput } from './wasm';
+import type { WasmFacing } from './wasm';
 
 async function bootstrap(): Promise<void> {
   // Step 1: prediction wasm. Must be ready before any drain or the loop runs.
@@ -84,11 +84,11 @@ async function bootstrap(): Promise<void> {
   let lastReceivedAt = -1;
   let lastAcked = -1n;
 
-  // Tap-vs-hold tracking: a fresh press commits exactly one step (tap = one tile); only after a
-  // direction has been held for a full step do we keep the buffer fed for smooth movement.
-  let heldDirState: WasmFacing | null = null;
+  // The direction the client has committed the character to (the intent, tracked separately from
+  // the queue so it survives the buffer draining). A change commits a responsive turn; a sustained
+  // hold tops the buffer up; a tap commits exactly one step.
+  let committedDir: WasmFacing | null = null;
   let heldSince = 0;
-  let firstStepDone = false;
 
   // Step 6: game loop, gated on wasm ready.
   app.ticker.add(() => {
@@ -117,33 +117,39 @@ async function bootstrap(): Promise<void> {
       }
       predictor.drain(now);
 
-      // Track press changes (so a fresh press's first step is committed even from a full buffer).
-      const dir = input.heldDir();
-      if (dir !== heldDirState) {
-        heldDirState = dir;
-        heldSince = now;
-        firstStepDone = false;
+      const room = stored.row.moveQueue.length + predictor.pendingCount < cap;
+
+      // Stop action (Escape, placeholder for menu/interact): clear the un-started buffer now.
+      if (input.takeClear()) {
+        const seq = predictor.clearQueue();
+        net.clearQueue(seq);
+        committedDir = null;
       }
 
-      // Flow control: enqueue only while the server buffer has room (authoritative queue depth +
-      // still-pending enqueues < cap) — so a held key can never overflow it (no QueueFull). A tap
-      // emits one step; a sustained hold (held past one step) tops the buffer up for smoothness.
-      if (stored.row.moveQueue.length + predictor.pendingCount < cap) {
-        let intent: WasmMoveInput | null = null;
-        if (input.takeJump()) {
-          intent = 'Jump';
-        } else if (dir) {
-          if (!firstStepDone) {
-            intent = { Step: dir };
-            firstStepDone = true;
-          } else if (now - heldSince >= step) {
-            intent = { Step: dir };
-          }
+      // Jump (one-shot): append behind the buffer if there's room.
+      if (input.takeJump() && room) {
+        const seq = predictor.enqueue('Jump');
+        net.enqueueMove(wasmToSdkMoveInput('Jump'), seq);
+      }
+
+      const dir = input.heldDir();
+      if (dir === null) {
+        committedDir = null; // released — the buffer drains and the character goes idle
+      } else if (dir !== committedDir) {
+        // Direction changed (or first step from idle): turn responsively by REPLACING the whole
+        // un-drained buffer with the new direction (no overshoot beyond the step already animating).
+        // Not flow-gated — set_move replaces rather than grows. Skip if it's already queued (no
+        // redundant same-direction requests).
+        committedDir = dir;
+        heldSince = now;
+        if (predictor.lastQueuedDir() !== dir) {
+          const seq = predictor.setMove({ Step: dir });
+          net.setMove(wasmToSdkMoveInput({ Step: dir }), seq);
         }
-        if (intent) {
-          const seq = predictor.enqueue(intent);
-          net.enqueueMove(wasmToSdkMoveInput(intent), seq);
-        }
+      } else if (now - heldSince >= step && room) {
+        // Sustained hold: top the buffer up for smooth continuous movement.
+        const seq = predictor.enqueue({ Step: dir });
+        net.enqueueMove(wasmToSdkMoveInput({ Step: dir }), seq);
       }
     }
 

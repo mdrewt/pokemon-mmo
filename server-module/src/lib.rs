@@ -232,37 +232,69 @@ pub fn join_game(ctx: &ReducerContext, name: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Buffer a movement intent for the caller's character. The move's outcome is computed later by
-/// `movement_tick`; the server never accepts a client-sent position. Rejects only when the queue
-/// is full (anti-flood) — the client flow-controls so it normally has room. `seq` acks the enqueue.
-#[spacetimedb::reducer]
-pub fn enqueue_move(ctx: &ReducerContext, input: MoveInput, seq: u64) -> Result<(), String> {
-    let mut player = ctx
+/// Look up the caller's (player, character) for a queue-mutating reducer, enforcing a monotonic
+/// `seq` ack. The caller mutates `ch.move_queue` then calls `commit_queue` to persist both rows.
+fn caller_character(ctx: &ReducerContext, seq: u64) -> Result<(Player, Character), String> {
+    let player = ctx
         .db
         .player()
         .identity()
         .find(ctx.sender)
         .ok_or("not in game")?;
-    let mut ch = ctx
-        .db
-        .character()
-        .entity_id()
-        .find(player.entity_id)
-        .ok_or("character missing")?;
-
     // The ack must be monotonic: a stale/replayed/decreasing seq could only wedge this client's
     // own reconciliation, so reject it rather than record it.
     if seq <= player.last_input_seq {
         return Err("stale input seq".to_string());
     }
+    let ch = ctx
+        .db
+        .character()
+        .entity_id()
+        .find(player.entity_id)
+        .ok_or("character missing")?;
+    Ok((player, ch))
+}
+
+/// Persist a queue mutation: write the character row and advance the player's `seq` ack.
+fn commit_queue(ctx: &ReducerContext, mut player: Player, ch: Character, seq: u64) {
+    ctx.db.character().entity_id().update(ch);
+    player.last_input_seq = seq;
+    ctx.db.player().identity().update(player);
+}
+
+/// Append a movement intent to the caller's buffer (used to top the buffer up while holding a
+/// direction). The move's outcome is computed later by `movement_tick` — the server never accepts
+/// a client position. Rejects only when the queue is full (anti-flood); the client flow-controls.
+#[spacetimedb::reducer]
+pub fn enqueue_move(ctx: &ReducerContext, input: MoveInput, seq: u64) -> Result<(), String> {
+    let (player, mut ch) = caller_character(ctx, seq)?;
     if ch.move_queue.len() >= MOVE_QUEUE_CAP {
         return Err("move queue full".to_string());
     }
     ch.move_queue.push(input);
-    ctx.db.character().entity_id().update(ch);
+    commit_queue(ctx, player, ch, seq);
+    Ok(())
+}
 
-    player.last_input_seq = seq;
-    ctx.db.player().identity().update(player);
+/// Replace the caller's entire un-drained buffer with a single move. Used for a responsive
+/// direction change (turn now rather than finishing buffered steps) and for the first move from
+/// idle. The currently-animating step (already drained out of the queue) still completes.
+#[spacetimedb::reducer]
+pub fn set_move(ctx: &ReducerContext, input: MoveInput, seq: u64) -> Result<(), String> {
+    let (player, mut ch) = caller_character(ctx, seq)?;
+    ch.move_queue.clear();
+    ch.move_queue.push(input);
+    commit_queue(ctx, player, ch, seq);
+    Ok(())
+}
+
+/// Clear the caller's un-drained buffer (e.g. when a non-movement action stops movement). The
+/// currently-animating step still completes; the character goes idle on the next empty tick.
+#[spacetimedb::reducer]
+pub fn clear_queue(ctx: &ReducerContext, seq: u64) -> Result<(), String> {
+    let (player, mut ch) = caller_character(ctx, seq)?;
+    ch.move_queue.clear();
+    commit_queue(ctx, player, ch, seq);
     Ok(())
 }
 
