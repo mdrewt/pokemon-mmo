@@ -10,7 +10,7 @@
 
 use game_core::{
     npc_decide, poc_map, resolve_input, ActionState, CharacterState, Direction, Millis, MoveInput,
-    NpcParams, TileMap, TilePos,
+    NpcParams, TileMap, TilePos, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{Identity, ReducerContext, ScheduleAt, Table};
@@ -19,8 +19,6 @@ use std::time::Duration;
 // --- Tuning constants ----------------------------------------------------------------------
 
 const MAP_ID: u32 = 0;
-/// Movement cooldown — must match the client's prediction value.
-const STEP_MS: u64 = 200;
 /// How often the NPC scheduler fires, and how long between NPC steps.
 const NPC_TICK_MS: u64 = 700;
 const NPC_WANDER_RADIUS: i32 = 4;

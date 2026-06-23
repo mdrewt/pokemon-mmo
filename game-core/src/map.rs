@@ -4,10 +4,13 @@
 //! [`poc_map`], shared *verbatim* by client and server (identical bytes ⇒ zero desync surface).
 //! A Tiled-authored, multi-map pipeline replaces this later — but not until a second map exists.
 
+use serde::{Deserialize, Serialize};
+
 use crate::types::TilePos;
 
 /// A row-major walkability grid. `true` = a character may stand on the tile.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Serializable so `client-wasm` can hand it to the renderer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TileMap {
     pub width: i32,
     pub height: i32,

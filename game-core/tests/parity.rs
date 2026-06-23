@@ -8,9 +8,8 @@
 
 use game_core::{
     poc_map, resolve_input, ActionState, CharacterState, Direction, Millis, MoveInput, TilePos,
+    STEP_MS,
 };
-
-const STEP_MS: u64 = 200;
 
 fn spawn() -> CharacterState {
     CharacterState {

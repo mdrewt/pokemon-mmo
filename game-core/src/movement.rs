@@ -8,6 +8,11 @@
 use crate::map::TileMap;
 use crate::types::{ActionState, CharacterState, Millis, MoveError, MoveInput};
 
+/// The default movement cooldown in milliseconds (one tile per `STEP_MS`). Shared by the server
+/// (authority) and the client (prediction) so the cooldown can never diverge — both pass this
+/// into [`resolve_input`] as `step_ms`.
+pub const STEP_MS: u64 = 200;
+
 /// Apply one input to a character.
 ///
 /// - `Ok(new_state)` with the same tile is a **legal no-op** (e.g. bumping a wall): facing may
@@ -61,8 +66,7 @@ pub fn resolve_input(
 mod tests {
     use super::*;
     use crate::types::{Direction, TilePos};
-
-    const STEP_MS: u64 = 200;
+    // STEP_MS comes from `super::*` (the production constant) — tests track any retune.
 
     fn state_at(pos: TilePos, facing: Direction) -> CharacterState {
         CharacterState {

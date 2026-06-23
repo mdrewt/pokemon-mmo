@@ -18,6 +18,6 @@ mod npc;
 mod types;
 
 pub use map::{poc_map, TileMap};
-pub use movement::resolve_input;
+pub use movement::{resolve_input, STEP_MS};
 pub use npc::{npc_decide, NpcParams};
 pub use types::{ActionState, CharacterState, Direction, Millis, MoveError, MoveInput, TilePos};
