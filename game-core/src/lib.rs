@@ -12,12 +12,17 @@
 //! The optional `spacetimedb` feature adds `SpacetimeType` derives to the types used as table
 //! columns / reducer arguments. It adds no runtime logic and is enabled only by `server-module`.
 
-mod map;
-mod movement;
-mod npc;
+mod content;
+mod monster;
 mod types;
+mod world;
 
-pub use map::{poc_map, TileMap};
-pub use movement::{apply_move, MOVE_QUEUE_CAP, STEP_MS};
-pub use npc::{npc_decide, NpcParams};
+pub use content::load_species;
+pub use monster::{
+    derive_stats, level_for_xp, roll_starter, xp_for_level, Affinity, Bond, Level, MonsterInstance,
+    Potential, Species, SpeciesId, Stat, StatBlock, Temperament, Training, Xp,
+};
 pub use types::{ActionState, CharacterState, Direction, Millis, MoveInput, TilePos};
+pub use world::map::{poc_map, TileMap};
+pub use world::movement::{apply_move, MOVE_QUEUE_CAP, STEP_MS};
+pub use world::npc::{npc_decide, NpcParams};

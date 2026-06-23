@@ -18,6 +18,19 @@ export const ActionState = __t.enum("ActionState", {
 });
 export type ActionState = __Infer<typeof ActionState>;
 
+// The tagged union or sum type for the algebraic type `Affinity`.
+export const Affinity = __t.enum("Affinity", {
+  Neutral: __t.unit(),
+  Fire: __t.unit(),
+  Water: __t.unit(),
+  Nature: __t.unit(),
+  Electric: __t.unit(),
+  Earth: __t.unit(),
+  Light: __t.unit(),
+  Dark: __t.unit(),
+});
+export type Affinity = __Infer<typeof Affinity>;
+
 export const Character = __t.object("Character", {
   entityId: __t.u64(),
   mapId: __t.u32(),
@@ -52,6 +65,31 @@ export const Direction = __t.enum("Direction", {
 });
 export type Direction = __Infer<typeof Direction>;
 
+export const Monster = __t.object("Monster", {
+  monsterId: __t.u64(),
+  ownerIdentity: __t.identity(),
+  speciesId: __t.u32(),
+  nickname: __t.string(),
+  level: __t.u8(),
+  xp: __t.u32(),
+  get potential() {
+    return Potential;
+  },
+  get temperament() {
+    return Temperament;
+  },
+  get training() {
+    return Training;
+  },
+  bond: __t.u16(),
+  currentHp: __t.u16(),
+  get derived() {
+    return StatBlock;
+  },
+  partySlot: __t.option(__t.u8()),
+});
+export type Monster = __Infer<typeof Monster>;
+
 // The tagged union or sum type for the algebraic type `MoveInput`.
 export const MoveInput = __t.enum("MoveInput", {
   get Step() {
@@ -84,4 +122,61 @@ export const Player = __t.object("Player", {
   lastInputSeq: __t.u64(),
 });
 export type Player = __Infer<typeof Player>;
+
+export const Potential = __t.object("Potential", {
+  hp: __t.u8(),
+  attack: __t.u8(),
+  defense: __t.u8(),
+  special: __t.u8(),
+  speed: __t.u8(),
+});
+export type Potential = __Infer<typeof Potential>;
+
+export const Species = __t.object("Species", {
+  speciesId: __t.u32(),
+  name: __t.string(),
+  get base() {
+    return StatBlock;
+  },
+  get primaryAffinity() {
+    return Affinity;
+  },
+  get secondaryAffinity() {
+    return __t.option(Affinity);
+  },
+  spriteId: __t.u32(),
+});
+export type Species = __Infer<typeof Species>;
+
+export const StatBlock = __t.object("StatBlock", {
+  hp: __t.u16(),
+  attack: __t.u16(),
+  defense: __t.u16(),
+  special: __t.u16(),
+  speed: __t.u16(),
+});
+export type StatBlock = __Infer<typeof StatBlock>;
+
+// The tagged union or sum type for the algebraic type `Temperament`.
+export const Temperament = __t.enum("Temperament", {
+  Hardy: __t.unit(),
+  Brave: __t.unit(),
+  Nimble: __t.unit(),
+  Stalwart: __t.unit(),
+  Mystic: __t.unit(),
+  Fierce: __t.unit(),
+  Cautious: __t.unit(),
+  Quick: __t.unit(),
+  Focused: __t.unit(),
+});
+export type Temperament = __Infer<typeof Temperament>;
+
+export const Training = __t.object("Training", {
+  hp: __t.u16(),
+  attack: __t.u16(),
+  defense: __t.u16(),
+  special: __t.u16(),
+  speed: __t.u16(),
+});
+export type Training = __Infer<typeof Training>;
 

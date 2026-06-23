@@ -27,6 +27,8 @@ export class InputController {
   /** Set on a stop/cancel press (Escape); consumed once by `takeClear()`. A placeholder for the
    *  real stop-movement actions (open menu, interact) until those exist. */
   #clearLatched = false;
+  /** Set on a box-toggle press (B); consumed once by `takeToggleBox()`. */
+  #toggleBoxLatched = false;
   #enabled = false;
 
   #onKeyDown = (e: KeyboardEvent): void => this.#handleKeyDown(e);
@@ -69,8 +71,20 @@ export class InputController {
     return c;
   }
 
+  /** Returns true once if the box-toggle (B) was pressed since the last call. */
+  takeToggleBox(): boolean {
+    const b = this.#toggleBoxLatched;
+    this.#toggleBoxLatched = false;
+    return b;
+  }
+
   #handleKeyDown(e: KeyboardEvent): void {
     if (e.repeat) return; // hold is handled by polling, not OS key-repeat
+    // Ignore game keys while typing in a text field (e.g. the box rename input).
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
     if (e.code === 'Space') {
       e.preventDefault();
       this.#jumpLatched = true;
@@ -78,6 +92,10 @@ export class InputController {
     }
     if (e.code === 'Escape') {
       this.#clearLatched = true;
+      return;
+    }
+    if (e.code === 'KeyB') {
+      this.#toggleBoxLatched = true;
       return;
     }
     const dir = ARROW_TO_DIR[e.code];
@@ -98,5 +116,6 @@ export class InputController {
     this.#heldDirs = [];
     this.#jumpLatched = false;
     this.#clearLatched = false;
+    this.#toggleBoxLatched = false;
   }
 }

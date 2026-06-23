@@ -37,6 +37,18 @@ export interface GameSnapshot {
   /** Predictor internals (for e2e assertions/diagnostics): queue depth, in-flight ops, next seq. */
   predictor: { queueDepth: number; pending: number; nextSeq: string } | null;
   characters: GameCharSnapshot[];
+  /** The caller's owned monsters (party + box), for box/party assertions. */
+  monsters: {
+    monsterId: string;
+    speciesId: number;
+    nickname: string;
+    level: number;
+    partySlot: number | null;
+  }[];
+  /** Total monster rows this client has RECEIVED (not filtered). RLS scopes this to the owner, so
+   *  it should equal the owned count — a regression guard against the monster table leaking others'
+   *  hidden genes. */
+  visibleMonsterCount: number;
 }
 
 declare global {
@@ -93,6 +105,14 @@ export function installIntrospection(
           }
         : null,
       characters,
+      monsters: net.ownMonsters().map((m) => ({
+        monsterId: m.monsterId.toString(),
+        speciesId: m.speciesId,
+        nickname: m.nickname,
+        level: m.level,
+        partySlot: m.partySlot ?? null,
+      })),
+      visibleMonsterCount: net.store.monsters.size,
     };
   };
 }

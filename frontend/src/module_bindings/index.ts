@@ -37,15 +37,19 @@ import {
 import ClearQueueReducer from "./clear_queue_reducer";
 import EnqueueMoveReducer from "./enqueue_move_reducer";
 import JoinGameReducer from "./join_game_reducer";
+import RenameMonsterReducer from "./rename_monster_reducer";
 import SetMoveReducer from "./set_move_reducer";
+import SetPartySlotReducer from "./set_party_slot_reducer";
 
 // Import all procedure arg schemas
 
 // Import all table schema definitions
 import CharacterRow from "./character_table";
 import ConfigRow from "./config_table";
+import MonsterRow from "./monster_table";
 import NpcRow from "./npc_table";
 import PlayerRow from "./player_table";
+import SpeciesRow from "./species_table";
 
 /** Type-only namespace exports for generated type groups. */
 
@@ -73,6 +77,20 @@ const tablesSchema = __schema({
       { name: 'config_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ConfigRow),
+  monster: __table({
+    name: 'monster',
+    indexes: [
+      { accessor: 'monster_id', name: 'monster_monster_id_idx_btree', algorithm: 'btree', columns: [
+        'monsterId',
+      ] },
+      { accessor: 'owner_identity', name: 'monster_owner_identity_idx_btree', algorithm: 'btree', columns: [
+        'ownerIdentity',
+      ] },
+    ],
+    constraints: [
+      { name: 'monster_monster_id_key', constraint: 'unique', columns: ['monsterId'] },
+    ],
+  }, MonsterRow),
   npc: __table({
     name: 'npc',
     indexes: [
@@ -95,6 +113,17 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  species: __table({
+    name: 'species',
+    indexes: [
+      { accessor: 'species_id', name: 'species_species_id_idx_btree', algorithm: 'btree', columns: [
+        'speciesId',
+      ] },
+    ],
+    constraints: [
+      { name: 'species_species_id_key', constraint: 'unique', columns: ['speciesId'] },
+    ],
+  }, SpeciesRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
@@ -102,7 +131,9 @@ const reducersSchema = __reducers(
   __reducerSchema("clear_queue", ClearQueueReducer),
   __reducerSchema("enqueue_move", EnqueueMoveReducer),
   __reducerSchema("join_game", JoinGameReducer),
+  __reducerSchema("rename_monster", RenameMonsterReducer),
   __reducerSchema("set_move", SetMoveReducer),
+  __reducerSchema("set_party_slot", SetPartySlotReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

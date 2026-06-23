@@ -8,8 +8,8 @@
 //! Movement is paced by the drain *cadence* (one move per `STEP_MS`), not by a per-move cooldown
 //! check, so `apply_move` itself never rejects: a blocked step is a legal in-place no-op.
 
-use crate::map::TileMap;
 use crate::types::{ActionState, CharacterState, Millis, MoveInput};
+use crate::world::map::TileMap;
 
 /// The step duration / drain cadence in milliseconds (one tile per `STEP_MS`). Shared by the
 /// server tick and the client drain so they never diverge.

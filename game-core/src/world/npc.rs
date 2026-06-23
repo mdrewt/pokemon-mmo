@@ -3,8 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::map::TileMap;
 use crate::types::{CharacterState, Direction, MoveInput, TilePos};
+use crate::world::map::TileMap;
 
 /// An NPC's wander envelope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
