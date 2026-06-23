@@ -6,8 +6,8 @@
   "license": "ISC",
   "scripts": {
     "build:wasm": "wasm-pack build client-wasm --target bundler",
-    "publish": "spacetime publish -p server-module monster-tamer-mmo",
-    "gen": "spacetime generate --lang typescript --out-dir frontend/src/module_bindings --project-path server-module",
+    "publish": "spacetime publish -p server-module -s local monster-tamer-mmo",
+    "gen": "spacetime generate --lang typescript --out-dir frontend/src/module_bindings --module-path server-module",
     "build:server": "npm run publish && npm run gen",
     "build": "npm run build:wasm && npm run build:server && npm --prefix frontend run build",
     "dev:client": "npm --prefix frontend run dev",

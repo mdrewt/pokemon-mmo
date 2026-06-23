@@ -143,7 +143,7 @@ Root `package.json` scripts encode this so steps (especially binding regen) aren
 |---|---|
 | `npm run build:wasm` | `wasm-pack build client-wasm --target bundler` |
 | `npm run publish` | `spacetime publish -p server-module monster-tamer-mmo` |
-| `npm run gen` | regenerate TS bindings into `frontend/src/module_bindings/` |
+| `npm run gen` | regenerate TS bindings (`spacetime generate … --module-path server-module`) into `frontend/src/module_bindings/` |
 | `npm run build` | wasm → publish → gen → frontend build |
 | `npm run check` | `cargo fmt --check` + `clippy -D warnings` + `tsc --noEmit` + `eslint` |
 | `npm test` | `cargo test --workspace` + frontend `vitest run` |
