@@ -174,12 +174,15 @@ test.describe.serial('two-window integration', () => {
       if (cur.x === prev.x && cur.y === prev.y) break;
       prev = cur;
     }
-    // One more bump into the wall must change nothing, and predicted must equal authority. (settle
-    // inside stepDir already enforces no-desync; we assert it explicitly to document the contract.)
+    // One more bump into the wall. Confirm an input was actually SUBMITTED (nextSeq advances) so a
+    // silently-dropped key can't masquerade as a rejection — then assert the tile didn't change (the
+    // server rejected the move) and predicted still equals authority (no desync).
+    const beforeSeq = Number((await snapshot(pageA)).predictor?.nextSeq);
     const before = await ownTile(pageA);
     const after = await stepDir(pageA, 'KeyA');
-    expect(after).toEqual(before);
     const g = await snapshot(pageA);
+    expect(Number(g.predictor?.nextSeq)).toBeGreaterThan(beforeSeq);
+    expect(after).toEqual(before);
     expect(g.predicted).toMatchObject({ x: own(g).tileX, y: own(g).tileY });
   });
 
