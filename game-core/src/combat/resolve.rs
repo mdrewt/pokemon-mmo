@@ -132,13 +132,22 @@ pub struct FaintEvent {
     pub species_id: u32,
 }
 
+/// The player swapped its active monster (for the battle log). `species_id` is the monster sent in.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
+pub struct SwitchEvent {
+    pub species_id: u32,
+}
+
 /// One thing that happened during a turn, in order — the client renders these into the battle log
-/// (damage numbers, "X fainted!", a resisted recruit). Stored on the battle row.
+/// (damage numbers, "X fainted!", a switch, a resisted recruit). Stored on the battle row.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
 pub enum BattleEvent {
     Attack(AttackEvent),
     Fainted(FaintEvent),
+    /// The player switched its active monster (`resolve_player_swap` emits this first).
+    Switched(SwitchEvent),
     /// A recruit attempt failed — the wild broke free (the server's taming reducer prepends this to
     /// the turn's events; `resolve_turn`/`resolve_enemy_turn` never emit it).
     RecruitFailed,
@@ -249,6 +258,40 @@ pub fn resolve_turn(
     (next, events)
 }
 
+/// The enemy active attacks the player active (if it can), appending the attack + any faint event.
+/// Shared by the player's non-attack turns (recruit attempt, switch) where only the wild gets to act.
+fn enemy_acts(
+    next: &mut BattleState,
+    enemy_skill: &Skill,
+    chart: &TypeChart,
+    enemy_variance: u8,
+    events: &mut Vec<BattleEvent>,
+) {
+    if next.enemy.active_ref().is_fainted() {
+        return;
+    }
+    let attacker = next.enemy.active_ref().clone();
+    let (dmg, eff) = apply_attack(
+        &attacker,
+        next.player.active_mut(),
+        enemy_skill,
+        chart,
+        enemy_variance,
+    );
+    events.push(BattleEvent::Attack(AttackEvent {
+        by_player: false,
+        skill_id: enemy_skill.id.0,
+        damage: dmg,
+        effectiveness: eff,
+    }));
+    if next.player.active_ref().is_fainted() {
+        events.push(BattleEvent::Fainted(FaintEvent {
+            player_side: true,
+            species_id: next.player.active_ref().species_id,
+        }));
+    }
+}
+
 /// Resolve a turn in which the player took a non-attack action (a recruit attempt or item) and so
 /// forfeits its attack — only the enemy's active acts, then the usual auto-switch/outcome bookkeeping.
 /// Lets a failed recruit cost the player a turn (the wild strikes back). No-op once the battle is over.
@@ -263,28 +306,31 @@ pub fn resolve_enemy_turn(
     if next.is_over() {
         return (next, events);
     }
-    if !next.enemy.active_ref().is_fainted() {
-        let attacker = next.enemy.active_ref().clone();
-        let (dmg, eff) = apply_attack(
-            &attacker,
-            next.player.active_mut(),
-            enemy_skill,
-            chart,
-            enemy_variance,
-        );
-        events.push(BattleEvent::Attack(AttackEvent {
-            by_player: false,
-            skill_id: enemy_skill.id.0,
-            damage: dmg,
-            effectiveness: eff,
-        }));
-        if next.player.active_ref().is_fainted() {
-            events.push(BattleEvent::Fainted(FaintEvent {
-                player_side: true,
-                species_id: next.player.active_ref().species_id,
-            }));
-        }
+    enemy_acts(&mut next, enemy_skill, chart, enemy_variance, &mut events);
+    finalize(&mut next);
+    (next, events)
+}
+
+/// Resolve a turn where the player swaps its active to team member `target` instead of attacking, so
+/// the wild gets a free hit on the monster sent in (switching costs the turn). The caller (server)
+/// validates `target` is in range, not the current active, and not fainted. No-op once over.
+pub fn resolve_player_swap(
+    state: &BattleState,
+    target: u8,
+    enemy_skill: &Skill,
+    chart: &TypeChart,
+    enemy_variance: u8,
+) -> (BattleState, Vec<BattleEvent>) {
+    let mut next = state.clone();
+    let mut events = Vec::new();
+    if next.is_over() {
+        return (next, events);
     }
+    next.player.active = target;
+    events.push(BattleEvent::Switched(SwitchEvent {
+        species_id: next.player.active_ref().species_id,
+    }));
+    enemy_acts(&mut next, enemy_skill, chart, enemy_variance, &mut events);
     finalize(&mut next);
     (next, events)
 }
@@ -517,6 +563,50 @@ mod tests {
                 ..
             })
         )));
+    }
+
+    #[test]
+    fn player_swap_changes_active_and_lets_enemy_hit_the_new_monster() {
+        // Two player monsters; start active=0, swap to index 1. The enemy then hits the new active.
+        let state = BattleState::new(
+            BattleSide::new(vec![mon(100, 200), mon(80, 200)]),
+            BattleSide::new(vec![mon(90, 200)]),
+        );
+        let (next, events) = resolve_player_swap(&state, 1, &tackle(), &empty_chart(), 15);
+        assert_eq!(
+            next.player.active, 1,
+            "active switched to the chosen member"
+        );
+        assert!(
+            next.player.team[1].current_hp < 200,
+            "the monster sent in took the wild's hit"
+        );
+        assert_eq!(
+            next.player.team[0].current_hp, 200,
+            "the benched monster is untouched"
+        );
+        // The log leads with the switch, then the enemy's attack.
+        assert!(matches!(events[0], BattleEvent::Switched(_)));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            BattleEvent::Attack(AttackEvent {
+                by_player: false,
+                ..
+            })
+        )));
+        assert_eq!(next.turn, 1);
+    }
+
+    #[test]
+    fn player_swap_is_noop_when_over() {
+        let mut state = BattleState::new(
+            BattleSide::new(vec![mon(100, 200), mon(80, 200)]),
+            BattleSide::new(vec![mon(90, 200)]),
+        );
+        state.outcome = BattleOutcome::PlayerWon;
+        let (next, events) = resolve_player_swap(&state, 1, &tackle(), &empty_chart(), 15);
+        assert_eq!(next, state);
+        assert!(events.is_empty());
     }
 
     #[test]

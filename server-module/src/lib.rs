@@ -15,8 +15,8 @@ use game_core::{
     apply_move, attempt_recruit as recruit_succeeds, battle_xp_reward, derive_stats,
     encounter_triggers, level_bounds, load_encounters, load_items, load_skills, load_species,
     load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance, resolve_enemy_turn,
-    resolve_turn, roll_individuality, roll_starter, xp_for_level, ActionState, Affinity,
-    BattleEvent, BattleMonster, BattleOutcome, BattleSide, BattleState, Bond, Category,
+    resolve_player_swap, resolve_turn, roll_individuality, roll_starter, xp_for_level, ActionState,
+    Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide, BattleState, Bond, Category,
     CharacterState, Direction, Effectiveness, EncounterTable, Level, Millis, MonsterInstance,
     MoveInput, NpcParams, Potential, Skill as CoreSkill, Species as CoreSpecies, SpeciesId,
     StatBlock, Temperament, TileMap, TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL,
@@ -1124,6 +1124,52 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
         battle.last_xp_gain = gain;
         battle.leveled_up = award_battle_xp(ctx, ctx.sender, gain);
     }
+    ctx.db.battle().player_identity().update(battle);
+    Ok(())
+}
+
+/// Swap the caller's active battle monster to party member `team_index` (forfeiting the attack — the
+/// wild then strikes the monster sent in). Validates the target is in range, not the current active,
+/// and not fainted; rejects (never clamps) an illegal choice. The client sends only the index.
+#[spacetimedb::reducer]
+pub fn swap_active(ctx: &ReducerContext, team_index: u8) -> Result<(), String> {
+    let mut battle = ctx
+        .db
+        .battle()
+        .player_identity()
+        .find(ctx.sender)
+        .ok_or("not in battle")?;
+    if battle.state.is_over() {
+        return Err("battle is over".to_string());
+    }
+
+    let team = &battle.state.player.team;
+    let idx = team_index as usize;
+    if idx >= team.len() {
+        return Err("no such party member".to_string());
+    }
+    if team_index == battle.state.player.active {
+        return Err("that monster is already in battle".to_string());
+    }
+    if team[idx].is_fainted() {
+        return Err("that monster has fainted".to_string());
+    }
+
+    let chart = type_chart_from_db(ctx);
+    let enemy_skill = enemy_skill_choice(ctx, &battle.state, &chart)?;
+    let (new_state, events) = resolve_player_swap(
+        &battle.state,
+        team_index,
+        &enemy_skill,
+        &chart,
+        variance(ctx),
+    );
+    battle.state = new_state;
+    battle.last_events = events;
+    battle.last_xp_gain = 0;
+    battle.leveled_up = false;
+    // The swap turn can damage the player's monster (no win is possible — the player didn't attack).
+    persist_party_hp(ctx, &battle);
     ctx.db.battle().player_identity().update(battle);
     Ok(())
 }

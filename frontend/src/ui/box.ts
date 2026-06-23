@@ -160,6 +160,7 @@ export class BoxScreen {
 
   #card(m: Monster): HTMLElement {
     const el = document.createElement('button');
+    el.dataset.monsterId = String(m.monsterId); // test hook for the e2e
     const selected = m.monsterId === this.#selected;
     el.style.cssText = `width:120px;height:64px;border-radius:8px;border:2px solid ${
       selected ? '#4f74c8' : 'transparent'
@@ -246,6 +247,7 @@ export class BoxScreen {
     if (m.partySlot === undefined) {
       for (let slot = 0; slot < PARTY_SIZE; slot++) {
         const b = this.#button(`To Party ${slot + 1}`);
+        b.dataset.party = String(slot); // test hook for the e2e
         b.onclick = () => this.#net.setPartySlot(m.monsterId, slot);
         controls.append(b);
       }

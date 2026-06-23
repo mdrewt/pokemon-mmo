@@ -5,7 +5,7 @@
 // rule duplication, no wasm.
 
 import type { NetHandle } from '../net/connection';
-import type { BattleMonster } from '../module_bindings/types';
+import type { BattleMonster, BattleSide } from '../module_bindings/types';
 import { affinityColor } from './affinity';
 
 export class BattleScreen {
@@ -76,7 +76,7 @@ export class BattleScreen {
     this.#root.append(this.#combatant(enemy, true), this.#log(battle), this.#combatant(player, false));
 
     if (state.outcome.tag === 'Ongoing') {
-      this.#root.append(this.#skillMenu(player, enemy));
+      this.#root.append(this.#skillMenu(player, state.player, enemy));
     } else {
       this.#root.append(this.#result(battle));
     }
@@ -151,13 +151,16 @@ export class BattleScreen {
     if (ev.tag === 'RecruitFailed') {
       return 'The wild broke free!';
     }
+    if (ev.tag === 'Switched') {
+      return `Go, ${this.#speciesName(ev.value.speciesId)}!`;
+    }
     // Faint
     const f = ev.value;
     const name = this.#speciesName(f.speciesId);
     return f.playerSide ? `Your ${name} fainted!` : `The wild ${name} fainted!`;
   }
 
-  #skillMenu(player: BattleMonster, enemy: BattleMonster): HTMLElement {
+  #skillMenu(player: BattleMonster, playerSide: BattleSide, enemy: BattleMonster): HTMLElement {
     const menu = document.createElement('div');
     menu.style.cssText = 'align-self:center;display:flex;flex-direction:column;gap:8px;margin-top:8px;';
     const grid = document.createElement('div');
@@ -210,6 +213,27 @@ export class BattleScreen {
     actions.append(flee);
 
     menu.append(actions);
+
+    // Switch row: any benched, still-conscious party member can be sent in (costs the turn).
+    const benched = playerSide.team
+      .map((m, i) => ({ m, i }))
+      .filter(({ m, i }) => i !== playerSide.active && m.currentHp > 0);
+    if (benched.length > 0) {
+      const switchRow = document.createElement('div');
+      switchRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center;';
+      const label = document.createElement('span');
+      label.textContent = 'Switch:';
+      label.style.cssText = 'opacity:0.6;font-size:12px;';
+      switchRow.append(label);
+      for (const { m, i } of benched) {
+        const btn = this.#button(`${this.#speciesName(m.speciesId)} (Lv ${m.level} · ${m.currentHp}/${m.maxHp})`);
+        btn.dataset.swap = String(i); // test hook for the e2e
+        btn.onclick = () => this.#net.swapActive(i);
+        switchRow.append(btn);
+      }
+      menu.append(switchRow);
+    }
+
     return menu;
   }
 

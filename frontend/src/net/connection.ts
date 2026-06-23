@@ -54,6 +54,7 @@ export interface NetHandle {
   setPartySlot(monsterId: bigint, slot: number | undefined): void;
   startBattle(): void;
   submitAction(skillId: number): void;
+  swapActive(teamIndex: number): void;
   attemptRecruit(useBait: boolean): void;
   closeBattle(): void;
   healParty(): void;
@@ -266,6 +267,9 @@ export function connect(): Promise<NetHandle> {
       },
       submitAction: (skillId: number) => {
         void conn.reducers.submitAction({ skillId });
+      },
+      swapActive: (teamIndex: number) => {
+        void conn.reducers.swapActive({ teamIndex });
       },
       attemptRecruit: (useBait: boolean) => {
         void conn.reducers.attemptRecruit({ useBait });
