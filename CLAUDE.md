@@ -251,24 +251,29 @@ Context7 is reserved only for a library that is BOTH version-sensitive AND lacks
    syntax"), never "the whole docs for X" — payload size is the dominant token cost, and a
    focused request is smaller from either server.
 
-## Engineering Principles (apply with judgment — see ARCHITECTURE.md for rationale)
+## Engineering Principles (apply with judgment — see ARCHITECTURE.md for the full tiered set + rationale)
 
-Balance CLEAN/DRY/YAGNI case-by-case; these are this project's pre-resolved tensions so you
-don't thrash or "simplify" deliberate structure away. "Bug-free" is approached, not guaranteed:
-the net is a pure testable `game-core` + mechanical enforcement + parity tests + review gates.
+The architecture is a **functional core / imperative shell with server authority**: pure
+`game-core` + effectful reducers/wasm/frontend. ARCHITECTURE.md has the curated, tiered principle
+set; it is *curated on purpose* — do **not** cargo-cult "all best practices," because several
+conflict here. The high-leverage rules:
 
-- **DRY, but not across boundaries.** Game *rules* live once in `game-core`. Thin
-  `client-wasm`/reducer/`net` wrappers are intentionally repetitive — don't abstract that
-  boilerplate into clever generics that obscure the boundary.
-- **YAGNI, with NAMED exceptions.** Build only current scope; defer the ARCHITECTURE.md scaling
-  path. But do **not** remove as "over-engineering": (1) full WASM client prediction, (2) the
-  entity/component split (`character` + `player`/`npc`). Keep the POC map a concrete `const`
-  grid — no Tiled/`TileMap` abstraction until a second map exists.
-- **Clean over clever.** Dependency-free domain core, I/O at the edges, small pure functions.
-- **Mechanical enforcement first.** Determinism → `clippy.toml`; boundaries → the compiler +
-  feature-flagged shared types; security → `reducer-security-auditor`; desync → `desync-guard`;
-  DRY/YAGNI/clarity → `/simplify`; bugs → `/code-review`. Each milestone's Definition of Done
-  includes a `/simplify` pass and a `/code-review` pass.
+- **Tier 1 (non-negotiable):** Single Source of Truth · separation of concerns · determinism &
+  purity · make-illegal-states-unrepresentable / parse-don't-validate · lightweight Design-by-
+  Contract · **DRY but not across marshaling boundaries** · **YAGNI with named exceptions** (don't
+  remove WASM prediction or the entity/component split; keep the POC map a `const` until a 2nd map)
+  · mechanical-enforcement-over-discipline · errors-are-values + idempotent reducers.
+- **Tier 2 (judgment):** defensive programming *at trust boundaries only* · **data-driven content**
+  (monsters/items/maps = data, not code) · SRP + DIP-at-test-seams · TDD for the core + behavior-
+  focused tests (no pixel tests) · KISS / least-astonishment / fail-fast.
+- **Inverted / unsuitable — don't apply blindly:** **Postel's Law is INVERTED** (server is *strict*
+  in what it accepts — reject, don't clamp); **SOLID is cherry-picked** (OCP fights exhaustive
+  enums — prefer the compiler flagging every match site); Uniform Access Principle is low-value in
+  Rust; heavyweight BDD/contract frameworks are YAGNI (keep the principle, skip the tooling).
+- **Mechanical enforcement map:** determinism → `clippy.toml`; boundaries → compiler + feature-
+  flagged shared types; security → `reducer-security-auditor`; desync → `desync-guard`;
+  DRY/YAGNI/clarity → `/simplify`; bugs → `/code-review`. Each milestone's DoD includes a
+  `/simplify` and a `/code-review` pass.
 
 ## Working Style
 
