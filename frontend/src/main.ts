@@ -15,6 +15,11 @@ import { DebugHud } from './ui/hud';
 import { characterToPredictedBaseline, moveQueueToWasm, wasmToSdkMoveInput } from './convert';
 import type { WasmFacing } from './wasm';
 
+// While holding, queue the NEXT step only once the current step is this far through its slide.
+// This keeps exactly one move of lookahead (smooth) while bounding how far the character drifts
+// past where you release: smaller = more responsive (less overshoot), larger = smoother. Tunable.
+const LOOKAHEAD_FRACTION = 0.5;
+
 async function bootstrap(): Promise<void> {
   // Step 1: prediction wasm. Must be ready before any drain or the loop runs.
   await initWasm();
@@ -86,9 +91,8 @@ async function bootstrap(): Promise<void> {
 
   // The direction the client has committed the character to (the intent, tracked separately from
   // the queue so it survives the buffer draining). A change commits a responsive turn; a sustained
-  // hold tops the buffer up; a tap commits exactly one step.
+  // hold queues one lookahead at a time; a tap commits exactly one step.
   let committedDir: WasmFacing | null = null;
-  let heldSince = 0;
 
   // Step 6: game loop, gated on wasm ready.
   app.ticker.add(() => {
@@ -141,13 +145,18 @@ async function bootstrap(): Promise<void> {
         // Not flow-gated — set_move replaces rather than grows. Skip if it's already queued (no
         // redundant same-direction requests).
         committedDir = dir;
-        heldSince = now;
         if (predictor.lastQueuedDir() !== dir) {
           const seq = predictor.setMove({ Step: dir });
           net.setMove(wasmToSdkMoveInput({ Step: dir }), seq);
         }
-      } else if (now - heldSince >= step && room) {
-        // Sustained hold: top the buffer up for smooth continuous movement.
+      } else if (
+        predictor.queueDepth === 0 &&
+        now - predictor.predicted.move_started_at >= step * LOOKAHEAD_FRACTION &&
+        room
+      ) {
+        // Sustained hold: queue exactly ONE lookahead step, and only once the current step is past
+        // LOOKAHEAD_FRACTION of its slide — so movement stays smooth but releasing overshoots by at
+        // most one tile (and usually zero, if you let go before the midpoint).
         const seq = predictor.enqueue({ Step: dir });
         net.enqueueMove(wasmToSdkMoveInput({ Step: dir }), seq);
       }
