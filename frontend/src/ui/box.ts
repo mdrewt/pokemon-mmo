@@ -8,6 +8,10 @@ import type { Monster } from '../module_bindings/types';
 
 const PARTY_SIZE = 3;
 
+/** Bold, muted, uppercase label — used for stat/field labels so they read as labels, not prose. */
+const LABEL_STYLE =
+  'font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#8a94a8;';
+
 /** A stand-in colour per affinity so same-species monsters read distinctly until real art exists. */
 const AFFINITY_COLOR: Record<string, string> = {
   Neutral: '#9aa3b2',
@@ -192,17 +196,28 @@ export class BoxScreen {
     heading.append(swatch, h);
     panel.append(heading);
 
-    const temperament = m.temperament.tag;
-    const meta = document.createElement('div');
-    meta.textContent = `Temperament: ${temperament}    Bond: ${m.bond}    HP: ${m.currentHp}/${m.derived.hp}`;
-    meta.style.cssText = 'opacity:0.85;';
-    panel.append(meta);
-
     const d = m.derived;
-    const stats = document.createElement('div');
-    stats.textContent = `ATK ${d.attack}   DEF ${d.defense}   SPC ${d.special}   SPD ${d.speed}`;
-    stats.style.cssText = 'font-variant-numeric:tabular-nums;opacity:0.85;';
-    panel.append(stats);
+    panel.append(
+      this.#infoGrid([
+        ['Temperament', m.temperament.tag],
+        ['Bond', String(m.bond)],
+        ['HP', `${m.currentHp} / ${d.hp}`],
+      ]),
+    );
+
+    // Combat stats as bold label + proportional bar (scaled to this monster's strongest of the
+    // four, so relative strengths read at a glance regardless of level) + tabular value.
+    const maxStat = Math.max(d.attack, d.defense, d.special, d.speed, 1);
+    const barColor = this.#affinityColor(m);
+    const statBlock = document.createElement('div');
+    statBlock.style.cssText = 'display:flex;flex-direction:column;gap:5px;margin-top:2px;';
+    statBlock.append(
+      this.#statBar('Attack', d.attack, maxStat, barColor),
+      this.#statBar('Defense', d.defense, maxStat, barColor),
+      this.#statBar('Special', d.special, maxStat, barColor),
+      this.#statBar('Speed', d.speed, maxStat, barColor),
+    );
+    panel.append(statBlock);
 
     // Rename
     const renameRow = document.createElement('form');
@@ -240,6 +255,43 @@ export class BoxScreen {
     panel.append(controls);
 
     return panel;
+  }
+
+  /** A two-column label/value grid with bold uppercase labels — easy to scan. */
+  #infoGrid(rows: [string, string][]): HTMLElement {
+    const grid = document.createElement('div');
+    grid.style.cssText =
+      'display:grid;grid-template-columns:max-content auto;column-gap:16px;row-gap:5px;align-items:center;';
+    for (const [label, value] of rows) {
+      const l = document.createElement('span');
+      l.textContent = label;
+      l.style.cssText = LABEL_STYLE;
+      const v = document.createElement('span');
+      v.textContent = value;
+      v.style.cssText = 'font-variant-numeric:tabular-nums;';
+      grid.append(l, v);
+    }
+    return grid;
+  }
+
+  /** One combat stat as a bold label + proportional bar + right-aligned tabular value. */
+  #statBar(label: string, value: number, max: number, color: string): HTMLElement {
+    const row = document.createElement('div');
+    row.style.cssText =
+      'display:grid;grid-template-columns:64px 1fr 28px;column-gap:10px;align-items:center;';
+    const l = document.createElement('span');
+    l.textContent = label;
+    l.style.cssText = LABEL_STYLE;
+    const track = document.createElement('div');
+    track.style.cssText = 'height:8px;border-radius:4px;background:#222a38;overflow:hidden;';
+    const fill = document.createElement('div');
+    fill.style.cssText = `height:100%;width:${Math.round((value / max) * 100)}%;background:${color};border-radius:4px;`;
+    track.append(fill);
+    const v = document.createElement('span');
+    v.textContent = String(value);
+    v.style.cssText = 'font-variant-numeric:tabular-nums;text-align:right;';
+    row.append(l, track, v);
+    return row;
   }
 
   #button(label: string, type: 'button' | 'submit' = 'button'): HTMLButtonElement {
