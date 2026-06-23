@@ -1,0 +1,10 @@
+// Skill content (data, not code). Embedded + parsed by game_core::load_skills; the server seeds the
+// public `skill` table from it so clients show skill names/power/affinity in the battle menu.
+// Format: a list of Skill. category = Physical (scales from Attack) | Special (from Special).
+[
+    (id: 1, name: "Tackle", affinity: Neutral, category: Physical, power: 40),
+    (id: 2, name: "Vine Whip", affinity: Nature, category: Physical, power: 45),
+    (id: 3, name: "Ember", affinity: Fire, category: Special, power: 45),
+    (id: 4, name: "Rock Throw", affinity: Earth, category: Physical, power: 50),
+    (id: 5, name: "Water Jet", affinity: Water, category: Special, power: 45),
+]

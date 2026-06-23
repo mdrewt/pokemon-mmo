@@ -11,22 +11,18 @@ import {
 } from "spacetimedb";
 import {
   Affinity,
-  StatBlock,
+  Category,
 } from "./types";
 
 
 export default __t.row({
-  speciesId: __t.u32().primaryKey().name("species_id"),
+  skillId: __t.u32().primaryKey().name("skill_id"),
   name: __t.string(),
-  get base() {
-    return StatBlock;
+  get affinity() {
+    return Affinity;
   },
-  get primaryAffinity() {
-    return Affinity.name("primary_affinity");
+  get category() {
+    return Category;
   },
-  get secondaryAffinity() {
-    return __t.option(Affinity).name("secondary_affinity");
-  },
-  spriteId: __t.u32().name("sprite_id"),
-  skills: __t.array(__t.u32()),
+  power: __t.u16(),
 });

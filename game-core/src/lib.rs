@@ -12,12 +12,18 @@
 //! The optional `spacetimedb` feature adds `SpacetimeType` derives to the types used as table
 //! columns / reducer arguments. It adds no runtime logic and is enabled only by `server-module`.
 
+mod combat;
 mod content;
 mod monster;
 mod types;
 mod world;
 
-pub use content::load_species;
+pub use combat::{
+    battle_xp_reward, damage, pick_best_skill, resolve_turn, BattleMonster, BattleOutcome,
+    BattleSide, BattleState, Category, Effectiveness, Skill, SkillId, TypeChart, TypeRelation,
+    MAX_VARIANCE_ROLL,
+};
+pub use content::{load_skills, load_species, load_type_chart, validate_content};
 pub use monster::{
     derive_stats, level_for_xp, roll_starter, xp_for_level, Affinity, Bond, Level, MonsterInstance,
     Potential, Species, SpeciesId, Stat, StatBlock, Temperament, Training, Xp,

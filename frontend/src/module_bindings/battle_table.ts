@@ -10,23 +10,16 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 import {
-  Affinity,
-  StatBlock,
+  BattleState,
 } from "./types";
 
 
 export default __t.row({
-  speciesId: __t.u32().primaryKey().name("species_id"),
-  name: __t.string(),
-  get base() {
-    return StatBlock;
+  playerIdentity: __t.identity().primaryKey().name("player_identity"),
+  get state() {
+    return BattleState;
   },
-  get primaryAffinity() {
-    return Affinity.name("primary_affinity");
-  },
-  get secondaryAffinity() {
-    return __t.option(Affinity).name("secondary_affinity");
-  },
-  spriteId: __t.u32().name("sprite_id"),
-  skills: __t.array(__t.u32()),
+  enemyLevel: __t.u8().name("enemy_level"),
+  lastPlayerSkillId: __t.u32().name("last_player_skill_id"),
+  lastEnemySkillId: __t.u32().name("last_enemy_skill_id"),
 });

@@ -118,6 +118,7 @@ mod tests {
             primary_affinity: Affinity::Nature,
             secondary_affinity: None,
             sprite_id: 0,
+            skills: vec![],
         }
     }
 

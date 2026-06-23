@@ -31,6 +31,69 @@ export const Affinity = __t.enum("Affinity", {
 });
 export type Affinity = __Infer<typeof Affinity>;
 
+export const Battle = __t.object("Battle", {
+  playerIdentity: __t.identity(),
+  get state() {
+    return BattleState;
+  },
+  enemyLevel: __t.u8(),
+  lastPlayerSkillId: __t.u32(),
+  lastEnemySkillId: __t.u32(),
+});
+export type Battle = __Infer<typeof Battle>;
+
+export const BattleMonster = __t.object("BattleMonster", {
+  speciesId: __t.u32(),
+  level: __t.u8(),
+  get affinity() {
+    return Affinity;
+  },
+  attack: __t.u16(),
+  defense: __t.u16(),
+  special: __t.u16(),
+  speed: __t.u16(),
+  maxHp: __t.u16(),
+  currentHp: __t.u16(),
+});
+export type BattleMonster = __Infer<typeof BattleMonster>;
+
+// The tagged union or sum type for the algebraic type `BattleOutcome`.
+export const BattleOutcome = __t.enum("BattleOutcome", {
+  Ongoing: __t.unit(),
+  PlayerWon: __t.unit(),
+  PlayerLost: __t.unit(),
+});
+export type BattleOutcome = __Infer<typeof BattleOutcome>;
+
+export const BattleSide = __t.object("BattleSide", {
+  get team() {
+    return __t.array(BattleMonster);
+  },
+  active: __t.u8(),
+});
+export type BattleSide = __Infer<typeof BattleSide>;
+
+export const BattleState = __t.object("BattleState", {
+  get player() {
+    return BattleSide;
+  },
+  get enemy() {
+    return BattleSide;
+  },
+  get outcome() {
+    return BattleOutcome;
+  },
+  turn: __t.u32(),
+});
+export type BattleState = __Infer<typeof BattleState>;
+
+// The tagged union or sum type for the algebraic type `Category`.
+export const Category = __t.enum("Category", {
+  Physical: __t.unit(),
+  Special: __t.unit(),
+});
+export type Category = __Infer<typeof Category>;
+
 export const Character = __t.object("Character", {
   entityId: __t.u64(),
   mapId: __t.u32(),
@@ -64,6 +127,15 @@ export const Direction = __t.enum("Direction", {
   West: __t.unit(),
 });
 export type Direction = __Infer<typeof Direction>;
+
+// The tagged union or sum type for the algebraic type `Effectiveness`.
+export const Effectiveness = __t.enum("Effectiveness", {
+  NoEffect: __t.unit(),
+  NotVeryEffective: __t.unit(),
+  Neutral: __t.unit(),
+  SuperEffective: __t.unit(),
+});
+export type Effectiveness = __Infer<typeof Effectiveness>;
 
 export const Monster = __t.object("Monster", {
   monsterId: __t.u64(),
@@ -132,6 +204,19 @@ export const Potential = __t.object("Potential", {
 });
 export type Potential = __Infer<typeof Potential>;
 
+export const Skill = __t.object("Skill", {
+  skillId: __t.u32(),
+  name: __t.string(),
+  get affinity() {
+    return Affinity;
+  },
+  get category() {
+    return Category;
+  },
+  power: __t.u16(),
+});
+export type Skill = __Infer<typeof Skill>;
+
 export const Species = __t.object("Species", {
   speciesId: __t.u32(),
   name: __t.string(),
@@ -145,6 +230,7 @@ export const Species = __t.object("Species", {
     return __t.option(Affinity);
   },
   spriteId: __t.u32(),
+  skills: __t.array(__t.u32()),
 });
 export type Species = __Infer<typeof Species>;
 
@@ -179,4 +265,18 @@ export const Training = __t.object("Training", {
   speed: __t.u16(),
 });
 export type Training = __Infer<typeof Training>;
+
+export const TypeRelationRow = __t.object("TypeRelationRow", {
+  id: __t.u64(),
+  get attack() {
+    return Affinity;
+  },
+  get defend() {
+    return Affinity;
+  },
+  get effect() {
+    return Effectiveness;
+  },
+});
+export type TypeRelationRow = __Infer<typeof TypeRelationRow>;
 
