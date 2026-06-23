@@ -7,6 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::combat::SkillId;
+
 /// The lean stat set (KISS — expand only if battle depth demands it). `Special` is the single
 /// magic/special stat. `Stat` itself is internal (indexing/temperament); it is not a table column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,6 +202,8 @@ pub struct Species {
     pub primary_affinity: Affinity,
     pub secondary_affinity: Option<Affinity>,
     pub sprite_id: u32,
+    /// The skills this species can use in battle (M7 learnset; M9 will let raising shape it).
+    pub skills: Vec<SkillId>,
 }
 
 /// An owned, individual monster — the in-memory domain form. The server `monster` table mirrors

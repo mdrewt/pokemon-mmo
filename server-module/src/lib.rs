@@ -12,10 +12,13 @@
 //! `game_core::Millis`. Syntax is for `spacetimedb` crate 1.12.0 (CLI 2.6): `name =`, `ctx.sender`.
 
 use game_core::{
-    apply_move, derive_stats, load_species, npc_decide, poc_map, roll_starter, ActionState,
-    Affinity, CharacterState, Direction, Millis, MonsterInstance, MoveInput, NpcParams, Potential,
-    Species as CoreSpecies, SpeciesId, StatBlock, Temperament, TileMap, TilePos, Training,
-    MOVE_QUEUE_CAP, STEP_MS,
+    apply_move, battle_xp_reward, derive_stats, level_bounds, load_skills, load_species,
+    load_type_chart, npc_decide, pick_best_skill, poc_map, resolve_turn, roll_individuality,
+    roll_starter, ActionState, Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide,
+    BattleState, Category, CharacterState, Direction, Effectiveness, Level, Millis,
+    MonsterInstance, MoveInput, NpcParams, Potential, Skill as CoreSkill, Species as CoreSpecies,
+    SpeciesId, StatBlock, Temperament, TileMap, TilePos, Training, TypeChart, Xp,
+    MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, Table};
@@ -100,6 +103,52 @@ pub struct Species {
     pub primary_affinity: Affinity,
     pub secondary_affinity: Option<Affinity>,
     pub sprite_id: u32,
+    /// Skill ids this species can use in battle (the client lists them from the `skill` table).
+    pub skills: Vec<u32>,
+}
+
+/// Skill templates, seeded at init from the game-core registry. Public read-only content so the
+/// client shows skill names/power/affinity in the battle menu.
+#[spacetimedb::table(name = skill, public)]
+pub struct Skill {
+    #[primary_key]
+    pub skill_id: u32,
+    pub name: String,
+    pub affinity: Affinity,
+    pub category: Category,
+    pub power: u16,
+}
+
+/// The type/affinity chart as rows, seeded at init. Public so the client can show effectiveness
+/// hints (a lookup on this data, not a duplicated rule). Any unlisted pair is Neutral.
+#[spacetimedb::table(name = type_relation, public)]
+pub struct TypeRelationRow {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub attack: Affinity,
+    pub defend: Affinity,
+    pub effect: Effectiveness,
+}
+
+/// A player's active battle (at most one). Stores the whole authoritative `BattleState`; the client
+/// reads it to render and submits actions. RLS-scoped to the owner (it carries the player's monster
+/// stats).
+#[spacetimedb::table(name = battle, public)]
+pub struct Battle {
+    #[primary_key]
+    pub player_identity: Identity,
+    pub state: BattleState,
+    pub enemy_level: u8,
+    /// The player party's `monster_id`s in `state.player.team` order, so post-turn HP can be written
+    /// back to the right monster rows (persistent HP).
+    pub party_monster_ids: Vec<u64>,
+    /// The most recent turn's log events (attacks with damage, faints) — the client renders them.
+    pub last_events: Vec<BattleEvent>,
+    /// XP the party gained on the most recent win (0 otherwise), and whether any party monster
+    /// leveled up — shown on the victory screen.
+    pub last_xp_gain: u32,
+    pub leveled_up: bool,
 }
 
 /// An owned, individual monster. Public so the owner's client renders its box/party; only the module
@@ -119,6 +168,11 @@ pub struct Monster {
     pub nickname: String,
     pub level: u8,
     pub xp: u32,
+    /// XP at the start of the current level and the total needed to reach the next (server-derived
+    /// from `xp` via game-core, so the client can show a progress bar without the curve). At the
+    /// level cap `xp_next == xp_floor`.
+    pub xp_floor: u32,
+    pub xp_next: u32,
     pub potential: Potential,
     pub temperament: Temperament,
     pub training: Training,
@@ -135,6 +189,11 @@ pub struct Monster {
 #[client_visibility_filter]
 const MONSTER_VISIBILITY: Filter =
     Filter::Sql("SELECT * FROM monster WHERE owner_identity = :sender");
+
+/// A player sees only their own battle (it carries their monsters' stats).
+#[client_visibility_filter]
+const BATTLE_VISIBILITY: Filter =
+    Filter::Sql("SELECT * FROM battle WHERE player_identity = :sender");
 
 /// Drives the movement loop. A row with an interval `scheduled_at` makes the scheduler call
 /// `movement_tick` every `STEP_MS`.
@@ -239,38 +298,54 @@ fn core_species(row: &Species) -> CoreSpecies {
         primary_affinity: row.primary_affinity,
         secondary_affinity: row.secondary_affinity,
         sprite_id: row.sprite_id,
+        skills: row.skills.iter().map(|&s| game_core::SkillId(s)).collect(),
     }
 }
 
-/// Build a `monster` row from an instance, always (re)computing the authoritative `derived` stat
-/// block here in game-core — this is the SSOT for that column, so callers must never trust a stored
-/// `derived`. (The starter path derives once more inside `roll_starter` for `current_hp`; a cheap,
-/// intentional redundancy at join time.)
+/// The level-dependent monster columns derived from an XP total: `(level, xp_floor, xp_next, derived
+/// stats)`. The SSOT for these stored-but-derived fields; recompute whenever `xp` changes so the
+/// client can read level/progress/stats without reimplementing the curve or stat formula.
+fn level_fields(
+    species: &CoreSpecies,
+    xp: u32,
+    potential: &Potential,
+    training: &Training,
+    temperament: Temperament,
+) -> (u8, u32, u32, StatBlock) {
+    let (level, floor, next) = level_bounds(Xp(xp));
+    let derived = derive_stats(species, potential, training, temperament, level);
+    (level.0, floor.0, next.0, derived)
+}
+
+/// Build a `monster` row from an instance, (re)computing the authoritative level/progress/`derived`
+/// columns from its XP — callers must never trust those from the client. Starts at full HP.
 fn monster_row(
     owner: Identity,
     species: &CoreSpecies,
     inst: &MonsterInstance,
     party_slot: Option<u8>,
 ) -> Monster {
-    let derived = derive_stats(
+    let (level, xp_floor, xp_next, derived) = level_fields(
         species,
+        inst.xp.0,
         &inst.potential,
         &inst.training,
         inst.temperament,
-        inst.level,
     );
     Monster {
         monster_id: 0, // auto_inc
         owner_identity: owner,
         species_id: inst.species_id.0,
         nickname: inst.nickname.clone().unwrap_or_default(),
-        level: inst.level.0,
+        level,
         xp: inst.xp.0,
+        xp_floor,
+        xp_next,
         potential: inst.potential,
         temperament: inst.temperament,
         training: inst.training,
         bond: inst.bond.0,
-        current_hp: inst.current_hp,
+        current_hp: derived.hp,
         derived,
         party_slot,
     }
@@ -308,6 +383,147 @@ fn caller_monster(ctx: &ReducerContext, monster_id: u64) -> Result<Monster, Stri
     Ok(monster)
 }
 
+// --- Battle helpers (marshaling + delegate to game-core) ------------------------------------
+
+/// Map a stored `skill` row to the `game-core` template.
+fn core_skill(row: &Skill) -> CoreSkill {
+    CoreSkill {
+        id: game_core::SkillId(row.skill_id),
+        name: row.name.clone(),
+        affinity: row.affinity,
+        category: row.category,
+        power: row.power,
+    }
+}
+
+/// Build the in-memory `TypeChart` from the seeded `type_relation` rows (the table is the cache).
+fn type_chart_from_db(ctx: &ReducerContext) -> TypeChart {
+    TypeChart {
+        relations: ctx
+            .db
+            .type_relation()
+            .iter()
+            .map(|r| game_core::TypeRelation {
+                attack: r.attack,
+                defend: r.defend,
+                effect: r.effect,
+            })
+            .collect(),
+    }
+}
+
+/// Build a combatant from a derived stat block + a current HP (so battles use the monster's
+/// persistent HP). Only the primary affinity is used in combat for M7 (secondary is deferred).
+fn battle_monster(
+    species_id: u32,
+    level: u8,
+    affinity: Affinity,
+    derived: &StatBlock,
+    current_hp: u16,
+) -> BattleMonster {
+    BattleMonster {
+        species_id,
+        level,
+        affinity,
+        attack: derived.attack,
+        defense: derived.defense,
+        special: derived.special,
+        speed: derived.speed,
+        max_hp: derived.hp,
+        current_hp: current_hp.min(derived.hp),
+    }
+}
+
+/// A combatant built from an owned monster — using its persistent `current_hp`.
+fn battle_monster_from(m: &Monster, species: &Species) -> BattleMonster {
+    battle_monster(
+        m.species_id,
+        m.level,
+        species.primary_affinity,
+        &m.derived,
+        m.current_hp,
+    )
+}
+
+/// Roll a wild enemy combatant of `species` at `level` (genes/temperament via `ctx.rng()`).
+fn roll_wild(ctx: &ReducerContext, species: &Species, level: u8) -> BattleMonster {
+    let core = core_species(species);
+    let (potential, temperament) = roll_individuality(&mut || ctx.random::<u32>());
+    let derived = derive_stats(
+        &core,
+        &potential,
+        &Training::default(),
+        temperament,
+        Level(level),
+    );
+    let full = derived.hp;
+    battle_monster(
+        species.species_id,
+        level,
+        species.primary_affinity,
+        &derived,
+        full,
+    )
+}
+
+/// Write the player team's post-turn HP back to the monster rows (persistent HP), mapping each
+/// combatant to its row by `party_monster_ids` order.
+fn persist_party_hp(ctx: &ReducerContext, battle: &Battle) {
+    for (i, &monster_id) in battle.party_monster_ids.iter().enumerate() {
+        let Some(combatant) = battle.state.player.team.get(i) else {
+            continue;
+        };
+        if let Some(mut m) = ctx.db.monster().monster_id().find(monster_id) {
+            // Re-check ownership against current state (not just the battle-time snapshot) so a
+            // future trade/transfer can't make this write land on someone else's monster.
+            if m.owner_identity == battle.player_identity && m.current_hp != combatant.current_hp {
+                m.current_hp = combatant.current_hp;
+                ctx.db.monster().monster_id().update(m);
+            }
+        }
+    }
+}
+
+/// Award XP to each of the caller's party monsters on a win: bump xp, recompute level/progress/
+/// derived stats via game-core (HP is NOT restored — it persists). Returns whether any leveled up.
+fn award_battle_xp(ctx: &ReducerContext, owner: Identity, reward: u32) -> bool {
+    let party: Vec<Monster> = ctx
+        .db
+        .monster()
+        .owner_identity()
+        .filter(owner)
+        .filter(|m| m.party_slot.is_some())
+        .collect();
+    let mut any_leveled = false;
+    for mut m in party {
+        let before = m.level;
+        m.xp = m.xp.saturating_add(reward);
+        if let Some(sp) = ctx.db.species().species_id().find(m.species_id) {
+            let (level, xp_floor, xp_next, derived) = level_fields(
+                &core_species(&sp),
+                m.xp,
+                &m.potential,
+                &m.training,
+                m.temperament,
+            );
+            m.level = level;
+            m.xp_floor = xp_floor;
+            m.xp_next = xp_next;
+            // HP is not restored on level-up — it persists; a level-up only raises the max.
+            m.current_hp = m.current_hp.min(derived.hp);
+            m.derived = derived;
+        }
+        any_leveled |= m.level > before;
+        ctx.db.monster().monster_id().update(m);
+    }
+    any_leveled
+}
+
+/// One variance roll in `0..=MAX_VARIANCE_ROLL`.
+fn variance(ctx: &ReducerContext) -> u8 {
+    ctx.random::<u8>() % (MAX_VARIANCE_ROLL + 1)
+}
+
 // --- Reducers ------------------------------------------------------------------------------
 
 /// Module setup: world config, the wandering NPC, and the movement scheduler.
@@ -330,6 +546,27 @@ pub fn init(ctx: &ReducerContext) {
             primary_affinity: s.primary_affinity,
             secondary_affinity: s.secondary_affinity,
             sprite_id: s.sprite_id,
+            skills: s.skills.iter().map(|sk| sk.0).collect(),
+        });
+    }
+    for sk in load_skills().expect("embedded skill content must be valid") {
+        ctx.db.skill().insert(Skill {
+            skill_id: sk.id.0,
+            name: sk.name,
+            affinity: sk.affinity,
+            category: sk.category,
+            power: sk.power,
+        });
+    }
+    for rel in load_type_chart()
+        .expect("embedded chart must be valid")
+        .relations
+    {
+        ctx.db.type_relation().insert(TypeRelationRow {
+            id: 0,
+            attack: rel.attack,
+            defend: rel.defend,
+            effect: rel.effect,
         });
     }
 
@@ -362,6 +599,8 @@ pub fn client_disconnected(ctx: &ReducerContext) {
         ctx.db.character().entity_id().delete(player.entity_id);
         ctx.db.player().identity().delete(ctx.sender);
     }
+    // End any active battle (monsters persist; the transient battle does not).
+    ctx.db.battle().player_identity().delete(ctx.sender);
 }
 
 /// Join with a display name: validate, spawn at a random walkable tile, link the identity.
@@ -545,5 +784,188 @@ pub fn set_party_slot(
 
     monster.party_slot = slot;
     ctx.db.monster().monster_id().update(monster);
+    Ok(())
+}
+
+/// Start a PvE battle: the caller's party vs a freshly-rolled wild monster at the lead's level. M7
+/// triggers this manually (proper encounter zones are M8). At most one battle per player.
+#[spacetimedb::reducer]
+pub fn start_battle(ctx: &ReducerContext) -> Result<(), String> {
+    if ctx.db.player().identity().find(ctx.sender).is_none() {
+        return Err("not in game".to_string());
+    }
+    if ctx.db.battle().player_identity().find(ctx.sender).is_some() {
+        return Err("already in battle".to_string());
+    }
+
+    let mut party: Vec<Monster> = ctx
+        .db
+        .monster()
+        .owner_identity()
+        .filter(ctx.sender)
+        .filter(|m| m.party_slot.is_some())
+        .collect();
+    if party.is_empty() {
+        return Err("no monsters in your party".to_string());
+    }
+    party.sort_by_key(|m| m.party_slot.unwrap_or(u8::MAX));
+    if party.iter().all(|m| m.current_hp == 0) {
+        return Err("your monsters need to heal first".to_string());
+    }
+
+    let mut team = Vec::new();
+    let mut party_monster_ids = Vec::new();
+    for m in &party {
+        let sp = ctx
+            .db
+            .species()
+            .species_id()
+            .find(m.species_id)
+            .ok_or("species missing")?;
+        team.push(battle_monster_from(m, &sp));
+        party_monster_ids.push(m.monster_id);
+    }
+
+    // A random wild species at the lead monster's level.
+    let lead_level = party[0].level.max(1);
+    let species: Vec<Species> = ctx.db.species().iter().collect();
+    let pick = species
+        .get(ctx.rng().gen_range(0..species.len().max(1)))
+        .ok_or("no species content")?;
+    let enemy = roll_wild(ctx, pick, lead_level);
+
+    // Lead with the first non-fainted party monster (one exists — checked above).
+    let mut player_side = BattleSide::new(team);
+    player_side.active = player_side
+        .team
+        .iter()
+        .position(|m| m.current_hp > 0)
+        .unwrap_or(0) as u8;
+
+    ctx.db.battle().insert(Battle {
+        player_identity: ctx.sender,
+        state: BattleState::new(player_side, BattleSide::new(vec![enemy])),
+        enemy_level: lead_level,
+        party_monster_ids,
+        last_events: Vec::new(),
+        last_xp_gain: 0,
+        leveled_up: false,
+    });
+    Ok(())
+}
+
+/// Submit the caller's chosen skill for the turn. The server validates the active monster knows it,
+/// picks the enemy's action (AI), resolves the turn in game-core, and on a win awards XP. The client
+/// sends intent (a skill id); the server computes every outcome.
+#[spacetimedb::reducer]
+pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> {
+    let mut battle = ctx
+        .db
+        .battle()
+        .player_identity()
+        .find(ctx.sender)
+        .ok_or("not in battle")?;
+    if battle.state.is_over() {
+        return Err("battle is over".to_string());
+    }
+
+    // The chosen skill must be in the active monster's species learnset.
+    let active_species_id = battle.state.player.active_ref().species_id;
+    let active_sp = ctx
+        .db
+        .species()
+        .species_id()
+        .find(active_species_id)
+        .ok_or("species missing")?;
+    if !active_sp.skills.contains(&skill_id) {
+        return Err("your monster does not know that skill".to_string());
+    }
+    let player_skill = core_skill(
+        &ctx.db
+            .skill()
+            .skill_id()
+            .find(skill_id)
+            .ok_or("skill missing")?,
+    );
+
+    let chart = type_chart_from_db(ctx);
+
+    // Enemy AI: choose its active's strongest skill against the player's active.
+    let enemy_sp = ctx
+        .db
+        .species()
+        .species_id()
+        .find(battle.state.enemy.active_ref().species_id)
+        .ok_or("enemy species missing")?;
+    let enemy_skills: Vec<CoreSkill> = enemy_sp
+        .skills
+        .iter()
+        .filter_map(|&id| ctx.db.skill().skill_id().find(id))
+        .map(|r| core_skill(&r))
+        .collect();
+    if enemy_skills.is_empty() {
+        return Err("enemy has no skills".to_string()); // content guarantees a learnset (fail-fast)
+    }
+    let enemy_skill = enemy_skills[pick_best_skill(
+        battle.state.enemy.active_ref(),
+        battle.state.player.active_ref(),
+        &enemy_skills,
+        &chart,
+        ctx.random::<u32>(),
+    )]
+    .clone();
+
+    let (new_state, events) = resolve_turn(
+        &battle.state,
+        &player_skill,
+        &enemy_skill,
+        &chart,
+        variance(ctx),
+        variance(ctx),
+    );
+
+    let won = new_state.outcome == BattleOutcome::PlayerWon;
+    let enemy_level = battle.enemy_level;
+    battle.state = new_state;
+    battle.last_events = events;
+    battle.last_xp_gain = 0;
+    battle.leveled_up = false;
+
+    // Persist the party's post-turn HP back to their monster rows (HP carries between battles).
+    persist_party_hp(ctx, &battle);
+
+    // On a win, award XP (mutating monster rows) and record the gain + level-up flag for the screen.
+    if won {
+        let gain = battle_xp_reward(enemy_level);
+        battle.last_xp_gain = gain;
+        battle.leveled_up = award_battle_xp(ctx, ctx.sender, gain);
+    }
+    ctx.db.battle().player_identity().update(battle);
+    Ok(())
+}
+
+/// Restore all the caller's monsters to full HP (a placeholder for a future healing spot / Pokémon
+/// Center — M7 lets the player heal on demand so a fainted party isn't a dead end).
+#[spacetimedb::reducer]
+pub fn heal_party(ctx: &ReducerContext) -> Result<(), String> {
+    let monsters: Vec<Monster> = ctx
+        .db
+        .monster()
+        .owner_identity()
+        .filter(ctx.sender)
+        .collect();
+    for mut m in monsters {
+        if m.current_hp != m.derived.hp {
+            m.current_hp = m.derived.hp;
+            ctx.db.monster().monster_id().update(m);
+        }
+    }
+    Ok(())
+}
+
+/// Leave the current battle (flee if ongoing, or dismiss the result). Returns to the overworld.
+#[spacetimedb::reducer]
+pub fn close_battle(ctx: &ReducerContext) -> Result<(), String> {
+    ctx.db.battle().player_identity().delete(ctx.sender);
     Ok(())
 }

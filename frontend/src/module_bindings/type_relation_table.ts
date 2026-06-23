@@ -11,22 +11,19 @@ import {
 } from "spacetimedb";
 import {
   Affinity,
-  StatBlock,
+  Effectiveness,
 } from "./types";
 
 
 export default __t.row({
-  speciesId: __t.u32().primaryKey().name("species_id"),
-  name: __t.string(),
-  get base() {
-    return StatBlock;
+  id: __t.u64().primaryKey(),
+  get attack() {
+    return Affinity;
   },
-  get primaryAffinity() {
-    return Affinity.name("primary_affinity");
+  get defend() {
+    return Affinity;
   },
-  get secondaryAffinity() {
-    return __t.option(Affinity).name("secondary_affinity");
+  get effect() {
+    return Effectiveness;
   },
-  spriteId: __t.u32().name("sprite_id"),
-  skills: __t.array(__t.u32()),
 });

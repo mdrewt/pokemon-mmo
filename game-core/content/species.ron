@@ -12,6 +12,7 @@
         primary_affinity: Nature,
         secondary_affinity: None,
         sprite_id: 0,
+        skills: [1, 2],
     ),
     (
         id: 2,
@@ -20,6 +21,7 @@
         primary_affinity: Fire,
         secondary_affinity: None,
         sprite_id: 1,
+        skills: [1, 3],
     ),
     (
         id: 3,
@@ -28,6 +30,7 @@
         primary_affinity: Earth,
         secondary_affinity: None,
         sprite_id: 2,
+        skills: [1, 4],
     ),
     (
         id: 4,
@@ -36,5 +39,6 @@
         primary_affinity: Water,
         secondary_affinity: None,
         sprite_id: 3,
+        skills: [1, 5],
     ),
 ]

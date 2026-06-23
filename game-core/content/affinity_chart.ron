@@ -1,0 +1,23 @@
+// The type/affinity chart (data, not code). Embedded + parsed by game_core::load_type_chart; the
+// server seeds it into the public `type_relation` table so the client can show effectiveness hints
+// (a TS lookup on the data, not a duplicated rule). Any (attack, defend) pair not listed is Neutral.
+// effect = SuperEffective (2x) | NotVeryEffective (0.5x) | NoEffect (0x).
+(
+    relations: [
+        // Elemental triangle: Fire > Nature > Water > Fire.
+        (attack: Fire, defend: Nature, effect: SuperEffective),
+        (attack: Nature, defend: Fire, effect: NotVeryEffective),
+        (attack: Nature, defend: Water, effect: SuperEffective),
+        (attack: Water, defend: Nature, effect: NotVeryEffective),
+        (attack: Water, defend: Fire, effect: SuperEffective),
+        (attack: Fire, defend: Water, effect: NotVeryEffective),
+        // Nature also handles Earth; Electric/Earth/Water interplay.
+        (attack: Nature, defend: Earth, effect: SuperEffective),
+        (attack: Earth, defend: Electric, effect: SuperEffective),
+        (attack: Electric, defend: Water, effect: SuperEffective),
+        (attack: Electric, defend: Earth, effect: NoEffect),
+        // Light and Dark are strong against each other.
+        (attack: Light, defend: Dark, effect: SuperEffective),
+        (attack: Dark, defend: Light, effect: SuperEffective),
+    ],
+)

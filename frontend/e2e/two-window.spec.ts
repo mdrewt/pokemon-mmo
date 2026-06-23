@@ -241,6 +241,68 @@ test.describe.serial('two-window integration', () => {
     await expect(pageA.locator('#box-screen')).toBeHidden();
   });
 
+  test('a battle can be fought to a conclusion and XP is awarded (M7)', async () => {
+    // Record the starter's level so we can confirm a win awards XP (level may rise).
+    const startLevel = (await snapshot(pageA)).monsters[0]!.level;
+
+    await pageA.locator('#app').click();
+    await pageA.keyboard.press('KeyF'); // start a battle
+    await expect(pageA.locator('#battle-screen')).toBeVisible();
+    await expect.poll(async () => (await snapshot(pageA)).battle !== null).toBe(true);
+
+    // Fight: submit the first available skill each turn until the battle resolves.
+    let guard = 0;
+    while (guard++ < 20) {
+      const g = await snapshot(pageA);
+      if (!g.battle || g.battle.outcome !== 'Ongoing') break;
+      const skill = pageA.locator('#battle-screen [data-skill]').first();
+      const before = g.battle.turn;
+      await skill.click();
+      await expect
+        .poll(async () => {
+          const b = (await snapshot(pageA)).battle;
+          return b === null || b.turn > before || b.outcome !== 'Ongoing';
+        })
+        .toBe(true);
+      // The turn log shows attack events with damage.
+      await expect(pageA.locator('#battle-screen')).toContainText('used');
+    }
+
+    const ended = (await snapshot(pageA)).battle!;
+    expect(['PlayerWon', 'PlayerLost']).toContain(ended.outcome);
+    // A win records the XP gained (shown on the victory screen); a loss awards none.
+    if (ended.outcome === 'PlayerWon') {
+      expect(ended.lastXpGain).toBeGreaterThan(0);
+      await expect(pageA.locator('#battle-screen')).toContainText('EXP');
+    }
+
+    // Dismiss the result → back to overworld (battle row gone).
+    await pageA.locator('#battle-screen').getByText('Continue').click();
+    await expect.poll(async () => (await snapshot(pageA)).battle).toBeNull();
+    await expect(pageA.locator('#battle-screen')).toBeHidden();
+
+    // A win awards XP; level is monotonic (never drops). (level-1 vs level-1 may also be a loss.)
+    const after = (await snapshot(pageA)).monsters[0]!;
+    expect(after.level).toBeGreaterThanOrEqual(startLevel);
+    // HP persisted out of battle (it is a valid, non-restored value until we heal).
+    expect(after.currentHp).toBeLessThanOrEqual(after.maxHp);
+
+    // Heal (H) restores the party to full HP.
+    await pageA.locator('#app').click();
+    await pageA.keyboard.press('KeyH');
+    await expect
+      .poll(async () => {
+        const m = (await snapshot(pageA)).monsters[0]!;
+        return m.currentHp === m.maxHp;
+      })
+      .toBe(true);
+
+    // The box detail shows an EXP progress bar.
+    await pageA.keyboard.press('KeyB');
+    await expect(pageA.locator('#box-screen')).toContainText('EXP');
+    await pageA.keyboard.press('Escape');
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

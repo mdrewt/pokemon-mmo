@@ -24,6 +24,8 @@ export default __t.row({
   nickname: __t.string(),
   level: __t.u8(),
   xp: __t.u32(),
+  xpFloor: __t.u32().name("xp_floor"),
+  xpNext: __t.u32().name("xp_next"),
   get potential() {
     return Potential;
   },

@@ -14,6 +14,7 @@ import { showNameEntry } from './ui/nameEntry';
 import { DebugHud } from './ui/hud';
 import { ScreenManager } from './ui/screen';
 import { BoxScreen } from './ui/box';
+import { BattleScreen } from './ui/battle';
 import { characterToPredictedBaseline, moveQueueToWasm, wasmToSdkMoveInput } from './convert';
 import { installIntrospection } from './test/introspect';
 import type { WasmFacing } from './wasm';
@@ -98,20 +99,38 @@ async function bootstrap(): Promise<void> {
   // hold queues the next step at completion; a tap commits exactly one step.
   let committedDir: WasmFacing | null = null;
 
-  // Screen-state machine + the monster box overlay. Opening the box stops the character (clears the
-  // movement buffer) and gates movement input; closing returns to overworld control.
+  // Screen-state machine + the menu overlays. A non-overworld screen stops the character (clears the
+  // movement buffer) and gates movement input; returning to overworld restores control.
   const screen = new ScreenManager();
   const box = new BoxScreen(net);
+  const battle = new BattleScreen(net);
   screen.onChange((s) => {
-    if (s === 'box') {
-      box.show();
-      if (predictor) {
-        net.clearQueue(predictor.clearQueue());
-      }
+    box.hide();
+    battle.hide();
+    if (s === 'box') box.show();
+    else if (s === 'battle') battle.show();
+    if (s !== 'overworld') {
+      if (predictor) net.clearQueue(predictor.clearQueue());
       committedDir = null;
-    } else {
-      box.hide();
     }
+  });
+
+  // The battle screen is server-driven: the screen follows the authoritative `battle` row appearing
+  // (start_battle) or disappearing (close_battle / loss-then-dismiss).
+  net.store.onBattleChange(() => {
+    if (net.battle() !== undefined) screen.set('battle');
+    else if (screen.current() === 'battle') screen.set('overworld');
+  });
+
+  // A small always-visible controls hint so the overworld actions are discoverable.
+  const hint = document.createElement('div');
+  hint.textContent = '[F] Fight   ·   [B] Box   ·   [H] Heal';
+  hint.style.cssText =
+    'position:fixed;left:12px;bottom:12px;padding:6px 10px;border-radius:6px;background:rgba(10,12,20,0.7);' +
+    'color:#cfd6e6;font:12px system-ui,sans-serif;z-index:800;pointer-events:none;';
+  document.body.appendChild(hint);
+  screen.onChange((s) => {
+    hint.style.display = s === 'overworld' ? 'block' : 'none';
   });
 
   // Step 6: game loop, gated on wasm ready.
@@ -139,17 +158,24 @@ async function bootstrap(): Promise<void> {
         lastReceivedAt = stored.receivedAt;
         lastAcked = acked;
       }
-      // Box toggle works in any screen. Escape closes a non-overworld screen; in the overworld it
-      // is the movement stop-action.
-      if (input.takeToggleBox()) screen.toggle('box');
+      // Consume one-shot latches once per frame, then route by the active screen.
+      const toggleBox = input.takeToggleBox();
       const stopPressed = input.takeClear();
-      const inOverworld = screen.current() === 'overworld';
+      const startBattlePressed = input.takeStartBattle();
+      const healPressed = input.takeHeal();
+      const jumpPressed = input.takeJump();
+      const current = screen.current();
 
-      if (!inOverworld) {
-        // A menu/box is open: don't drive the character. Escape returns to the overworld.
-        if (stopPressed) screen.set('overworld');
-        input.takeJump(); // consume so a queued jump doesn't fire on return
+      if (current === 'battle') {
+        // Driven by the battle screen's on-screen buttons; Escape flees (close_battle).
+        if (stopPressed) net.closeBattle();
+      } else if (current === 'box') {
+        if (toggleBox || stopPressed) screen.set('overworld');
       } else {
+        // Overworld.
+        if (toggleBox) screen.set('box');
+        if (healPressed) net.healParty();
+        if (startBattlePressed && net.battle() === undefined) net.startBattle();
         const room = stored.row.moveQueue.length + predictor.pendingCount < cap;
 
         // Stop action (Escape, placeholder for menu/interact): clear the un-started buffer now.
@@ -160,7 +186,7 @@ async function bootstrap(): Promise<void> {
         }
 
         // Jump (one-shot): append behind the buffer if there's room.
-        if (input.takeJump() && room) {
+        if (jumpPressed && room) {
           const seq = predictor.enqueue('Jump');
           net.enqueueMove(wasmToSdkMoveInput('Jump'), seq);
         }

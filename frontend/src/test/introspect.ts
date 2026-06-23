@@ -44,11 +44,24 @@ export interface GameSnapshot {
     nickname: string;
     level: number;
     partySlot: number | null;
+    currentHp: number;
+    maxHp: number;
   }[];
   /** Total monster rows this client has RECEIVED (not filtered). RLS scopes this to the owner, so
    *  it should equal the owned count — a regression guard against the monster table leaking others'
    *  hidden genes. */
   visibleMonsterCount: number;
+  /** The active battle, or null. */
+  battle: {
+    outcome: string;
+    turn: number;
+    playerHp: number;
+    playerMaxHp: number;
+    enemyHp: number;
+    enemyMaxHp: number;
+    lastXpGain: number;
+    leveledUp: boolean;
+  } | null;
 }
 
 declare global {
@@ -111,8 +124,26 @@ export function installIntrospection(
         nickname: m.nickname,
         level: m.level,
         partySlot: m.partySlot ?? null,
+        currentHp: m.currentHp,
+        maxHp: m.derived.hp,
       })),
       visibleMonsterCount: net.store.monsters.size,
+      battle: (() => {
+        const b = net.battle();
+        if (!b) return null;
+        const p = b.state.player.team[b.state.player.active];
+        const e = b.state.enemy.team[b.state.enemy.active];
+        return {
+          outcome: b.state.outcome.tag,
+          turn: b.state.turn,
+          playerHp: p?.currentHp ?? 0,
+          playerMaxHp: p?.maxHp ?? 0,
+          enemyHp: e?.currentHp ?? 0,
+          enemyMaxHp: e?.maxHp ?? 0,
+          lastXpGain: b.lastXpGain,
+          leveledUp: b.leveledUp,
+        };
+      })(),
     };
   };
 }
