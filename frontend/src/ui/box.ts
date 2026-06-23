@@ -113,6 +113,15 @@ export class BoxScreen {
       this.#root.append(empty);
     }
 
+    const bait = this.#net.baitCount();
+    if (bait > 0) {
+      this.#root.append(this.#sectionLabel('Items'));
+      const items = document.createElement('div');
+      items.textContent = `Lure × ${bait}  —  use it during a battle to recruit more easily.`;
+      items.style.cssText = 'font-size:13px;opacity:0.85;';
+      this.#root.append(items);
+    }
+
     const selected = monsters.find((m) => m.monsterId === this.#selected);
     if (selected) this.#root.append(this.#detail(selected));
   }

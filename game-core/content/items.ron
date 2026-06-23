@@ -1,0 +1,8 @@
+// Item content (data, not code). M8 ships one item: recruit bait. Embedded via include_str! and
+// parsed by `game_core::load_items`; the server seeds it into the `item` table at init.
+//
+// Format: a list of Item = (id, name, recruit_bonus). `recruit_bonus` is the permille added to the
+// recruit chance when the item is used in a recruit attempt. Keep ids stable and unique.
+[
+    (id: 1, name: "Lure", recruit_bonus: 200),
+]

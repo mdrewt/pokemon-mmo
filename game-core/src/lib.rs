@@ -15,19 +15,26 @@
 mod combat;
 mod content;
 mod monster;
+mod taming;
 mod types;
 mod world;
 
 pub use combat::{
-    battle_xp_reward, damage, pick_best_skill, resolve_turn, AttackEvent, BattleEvent,
-    BattleMonster, BattleOutcome, BattleSide, BattleState, Category, Effectiveness, FaintEvent,
-    Skill, SkillId, TypeChart, TypeRelation, MAX_VARIANCE_ROLL,
+    battle_xp_reward, damage, pick_best_skill, resolve_enemy_turn, resolve_turn, AttackEvent,
+    BattleEvent, BattleMonster, BattleOutcome, BattleSide, BattleState, Category, Effectiveness,
+    FaintEvent, Skill, SkillId, TypeChart, TypeRelation, MAX_VARIANCE_ROLL,
 };
-pub use content::{load_skills, load_species, load_type_chart, validate_content};
+pub use content::{
+    load_encounters, load_items, load_skills, load_species, load_type_chart, validate_content,
+};
 pub use monster::{
     derive_stats, level_bounds, level_for_xp, roll_individuality, roll_starter, xp_for_level,
     Affinity, Bond, Level, MonsterInstance, Potential, Species, SpeciesId, Stat, StatBlock,
     Temperament, Training, Xp,
+};
+pub use taming::{
+    attempt_recruit, encounter_triggers, recruit_chance, EncounterEntry, EncounterTable, Item,
+    ENCOUNTER_CHANCE_PERMILLE, RECRUIT_HP_FACTOR,
 };
 pub use types::{ActionState, CharacterState, Direction, Millis, MoveInput, TilePos};
 pub use world::map::{poc_map, TileMap};

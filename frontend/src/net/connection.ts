@@ -8,9 +8,11 @@ import { DbConnection, type EventContext, type ErrorContext } from '../module_bi
 import type {
   Battle,
   Character,
+  Item,
   Monster,
   MoveInput,
   Player,
+  PlayerItem,
   Skill,
   Species,
   TypeRelationRow,
@@ -41,6 +43,8 @@ export interface NetHandle {
   skill(skillId: number): Skill | undefined;
   /** The caller's active battle, if any. */
   battle(): Battle | undefined;
+  /** The caller's total bait count (any owned item with a recruit bonus) — data-driven, no magic id. */
+  baitCount(): number;
 
   joinGame(name: string): void;
   enqueueMove(input: MoveInput, seq: bigint): void;
@@ -50,6 +54,7 @@ export interface NetHandle {
   setPartySlot(monsterId: bigint, slot: number | undefined): void;
   startBattle(): void;
   submitAction(skillId: number): void;
+  attemptRecruit(useBait: boolean): void;
   closeBattle(): void;
   healParty(): void;
   disconnect(): void;
@@ -108,6 +113,8 @@ export function connect(): Promise<NetHandle> {
             'SELECT * FROM skill',
             'SELECT * FROM type_relation',
             'SELECT * FROM battle',
+            'SELECT * FROM item',
+            'SELECT * FROM player_item',
           ]);
       })
       .onConnectError((_ctx: ErrorContext, error: Error) => {
@@ -170,6 +177,21 @@ export function connect(): Promise<NetHandle> {
       store.upsertTypeRelation(row);
     });
 
+    conn.db.item.onInsert((_ctx: EventContext, row: Item) => {
+      store.upsertItem(row);
+    });
+    conn.db.player_item.onInsert((_ctx: EventContext, row: PlayerItem) => {
+      store.upsertPlayerItem(row);
+    });
+    conn.db.player_item.onUpdate(
+      (_ctx: EventContext, _old: PlayerItem, row: PlayerItem) => {
+        store.upsertPlayerItem(row);
+      },
+    );
+    conn.db.player_item.onDelete((_ctx: EventContext, row: PlayerItem) => {
+      store.removePlayerItem(row.id);
+    });
+
     conn.db.battle.onInsert((_ctx: EventContext, row: Battle) => {
       store.setBattle(row);
     });
@@ -211,6 +233,16 @@ export function connect(): Promise<NetHandle> {
       species: (speciesId: number) => store.species.get(speciesId),
       skill: (skillId: number) => store.skills.get(skillId),
       battle: () => store.battle,
+      baitCount: () => {
+        const hex = identity?.toHexString();
+        if (!hex) return 0;
+        let total = 0;
+        for (const pi of store.playerItems.values()) {
+          if (pi.ownerIdentity.toHexString() !== hex) continue;
+          if ((store.items.get(pi.itemId)?.recruitBonus ?? 0) > 0) total += pi.quantity;
+        }
+        return total;
+      },
       joinGame: (name: string) => {
         void conn.reducers.joinGame({ name });
       },
@@ -234,6 +266,9 @@ export function connect(): Promise<NetHandle> {
       },
       submitAction: (skillId: number) => {
         void conn.reducers.submitAction({ skillId });
+      },
+      attemptRecruit: (useBait: boolean) => {
+        void conn.reducers.attemptRecruit({ useBait });
       },
       closeBattle: () => {
         void conn.reducers.closeBattle({});

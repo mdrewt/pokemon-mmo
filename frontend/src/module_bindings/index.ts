@@ -34,6 +34,7 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AttemptRecruitReducer from "./attempt_recruit_reducer";
 import ClearQueueReducer from "./clear_queue_reducer";
 import CloseBattleReducer from "./close_battle_reducer";
 import EnqueueMoveReducer from "./enqueue_move_reducer";
@@ -51,9 +52,11 @@ import SubmitActionReducer from "./submit_action_reducer";
 import BattleRow from "./battle_table";
 import CharacterRow from "./character_table";
 import ConfigRow from "./config_table";
+import ItemRow from "./item_table";
 import MonsterRow from "./monster_table";
 import NpcRow from "./npc_table";
 import PlayerRow from "./player_table";
+import PlayerItemRow from "./player_item_table";
 import SkillRow from "./skill_table";
 import SpeciesRow from "./species_table";
 import TypeRelationRow from "./type_relation_table";
@@ -95,6 +98,17 @@ const tablesSchema = __schema({
       { name: 'config_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ConfigRow),
+  item: __table({
+    name: 'item',
+    indexes: [
+      { accessor: 'item_id', name: 'item_item_id_idx_btree', algorithm: 'btree', columns: [
+        'itemId',
+      ] },
+    ],
+    constraints: [
+      { name: 'item_item_id_key', constraint: 'unique', columns: ['itemId'] },
+    ],
+  }, ItemRow),
   monster: __table({
     name: 'monster',
     indexes: [
@@ -123,6 +137,9 @@ const tablesSchema = __schema({
   player: __table({
     name: 'player',
     indexes: [
+      { accessor: 'entity_id', name: 'player_entity_id_idx_btree', algorithm: 'btree', columns: [
+        'entityId',
+      ] },
       { accessor: 'identity', name: 'player_identity_idx_btree', algorithm: 'btree', columns: [
         'identity',
       ] },
@@ -131,6 +148,20 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  player_item: __table({
+    name: 'player_item',
+    indexes: [
+      { accessor: 'id', name: 'player_item_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'owner_identity', name: 'player_item_owner_identity_idx_btree', algorithm: 'btree', columns: [
+        'ownerIdentity',
+      ] },
+    ],
+    constraints: [
+      { name: 'player_item_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, PlayerItemRow),
   skill: __table({
     name: 'skill',
     indexes: [
@@ -168,6 +199,7 @@ const tablesSchema = __schema({
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("attempt_recruit", AttemptRecruitReducer),
   __reducerSchema("clear_queue", ClearQueueReducer),
   __reducerSchema("close_battle", CloseBattleReducer),
   __reducerSchema("enqueue_move", EnqueueMoveReducer),

@@ -34,11 +34,12 @@ export function moveQueueCap(): number {
   return wasm.move_queue_cap();
 }
 
-/** The POC map (row-major walkability grid). */
+/** The POC map (row-major walkability grid). `grass` marks tall-grass tiles (walkable + encounters). */
 export interface WasmMap {
   width: number;
   height: number;
   walkable: boolean[];
+  grass: boolean[];
 }
 
 let ready = false;

@@ -51,6 +51,8 @@ export interface GameSnapshot {
    *  it should equal the owned count — a regression guard against the monster table leaking others'
    *  hidden genes. */
   visibleMonsterCount: number;
+  /** The caller's total bait count (consumed when recruiting with bait). */
+  baitCount: number;
   /** The active battle, or null. */
   battle: {
     outcome: string;
@@ -128,6 +130,7 @@ export function installIntrospection(
         maxHp: m.derived.hp,
       })),
       visibleMonsterCount: net.store.monsters.size,
+      baitCount: net.baitCount(),
       battle: (() => {
         const b = net.battle();
         if (!b) return null;

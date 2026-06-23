@@ -48,6 +48,12 @@ export const Battle = __t.object("Battle", {
   },
   enemyLevel: __t.u8(),
   partyMonsterIds: __t.array(__t.u64()),
+  get wildPotential() {
+    return Potential;
+  },
+  get wildTemperament() {
+    return Temperament;
+  },
   get lastEvents() {
     return __t.array(BattleEvent);
   },
@@ -64,6 +70,7 @@ export const BattleEvent = __t.enum("BattleEvent", {
   get Fainted() {
     return FaintEvent;
   },
+  RecruitFailed: __t.unit(),
 });
 export type BattleEvent = __Infer<typeof BattleEvent>;
 
@@ -87,6 +94,7 @@ export const BattleOutcome = __t.enum("BattleOutcome", {
   Ongoing: __t.unit(),
   PlayerWon: __t.unit(),
   PlayerLost: __t.unit(),
+  Recruited: __t.unit(),
 });
 export type BattleOutcome = __Infer<typeof BattleOutcome>;
 
@@ -162,11 +170,28 @@ export const Effectiveness = __t.enum("Effectiveness", {
 });
 export type Effectiveness = __Infer<typeof Effectiveness>;
 
+export const Encounter = __t.object("Encounter", {
+  id: __t.u64(),
+  zoneId: __t.u32(),
+  speciesId: __t.u32(),
+  weight: __t.u32(),
+  minLevel: __t.u8(),
+  maxLevel: __t.u8(),
+});
+export type Encounter = __Infer<typeof Encounter>;
+
 export const FaintEvent = __t.object("FaintEvent", {
   playerSide: __t.bool(),
   speciesId: __t.u32(),
 });
 export type FaintEvent = __Infer<typeof FaintEvent>;
+
+export const Item = __t.object("Item", {
+  itemId: __t.u32(),
+  name: __t.string(),
+  recruitBonus: __t.u16(),
+});
+export type Item = __Infer<typeof Item>;
 
 export const Monster = __t.object("Monster", {
   monsterId: __t.u64(),
@@ -228,6 +253,14 @@ export const Player = __t.object("Player", {
 });
 export type Player = __Infer<typeof Player>;
 
+export const PlayerItem = __t.object("PlayerItem", {
+  id: __t.u64(),
+  ownerIdentity: __t.identity(),
+  itemId: __t.u32(),
+  quantity: __t.u32(),
+});
+export type PlayerItem = __Infer<typeof PlayerItem>;
+
 export const Potential = __t.object("Potential", {
   hp: __t.u8(),
   attack: __t.u8(),
@@ -264,6 +297,7 @@ export const Species = __t.object("Species", {
   },
   spriteId: __t.u32(),
   skills: __t.array(__t.u32()),
+  recruitRate: __t.u16(),
 });
 export type Species = __Infer<typeof Species>;
 

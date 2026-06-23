@@ -1,0 +1,15 @@
+// Wild-encounter table for the POC tall-grass zone (data, not code) — the single source of truth for
+// what spawns in grass. Embedded via include_str! and parsed by `game_core::load_encounters`; the
+// server seeds it into the `encounter` table at init and rolls a wild from it on a grass step.
+//
+// Format: an EncounterTable = (entries: [EncounterEntry]). Each entry is (species_id, weight,
+// min_level, max_level): species_id must exist in species.ron; weight is relative (higher = more
+// common); levels are inclusive. Pebblet is the rarer, slightly tougher find.
+(
+    entries: [
+        (species_id: 1, weight: 30, min_level: 2, max_level: 4),
+        (species_id: 2, weight: 28, min_level: 2, max_level: 4),
+        (species_id: 4, weight: 28, min_level: 2, max_level: 4),
+        (species_id: 3, weight: 14, min_level: 3, max_level: 5),
+    ],
+)

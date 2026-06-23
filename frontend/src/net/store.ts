@@ -8,8 +8,10 @@
 import type {
   Battle,
   Character,
+  Item,
   Monster,
   Player,
+  PlayerItem,
   Skill,
   Species,
   TypeRelationRow,
@@ -39,6 +41,10 @@ export class AuthoritativeStore {
   readonly monsters = new Map<bigint, Monster>();
   /** Skill templates, keyed by skillId. Read-only content. */
   readonly skills = new Map<number, Skill>();
+  /** Item templates, keyed by itemId. Read-only content. */
+  readonly items = new Map<number, Item>();
+  /** The caller's owned item stacks, keyed by row id (RLS-scoped to the owner). */
+  readonly playerItems = new Map<bigint, PlayerItem>();
   /** Type/affinity chart rows (seeded). */
   readonly typeRelations: TypeRelationRow[] = [];
   /** The caller's active battle, if any (RLS-scoped to the owner — at most one). */
@@ -81,6 +87,19 @@ export class AuthoritativeStore {
 
   upsertSkill(row: Skill): void {
     this.skills.set(row.skillId, row);
+  }
+
+  upsertItem(row: Item): void {
+    this.items.set(row.itemId, row);
+  }
+
+  upsertPlayerItem(row: PlayerItem): void {
+    this.playerItems.set(row.id, row);
+    this.#emitMonsterChange(); // box UI shows item counts alongside monsters
+  }
+
+  removePlayerItem(id: bigint): void {
+    if (this.playerItems.delete(id)) this.#emitMonsterChange();
   }
 
   upsertTypeRelation(row: TypeRelationRow): void {

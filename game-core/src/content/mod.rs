@@ -12,10 +12,13 @@ use std::collections::BTreeSet;
 
 use crate::combat::{Skill, TypeChart};
 use crate::monster::Species;
+use crate::taming::{EncounterTable, Item};
 
 const SPECIES_RON: &str = include_str!("../../content/species.ron");
 const SKILLS_RON: &str = include_str!("../../content/skills.ron");
 const AFFINITY_CHART_RON: &str = include_str!("../../content/affinity_chart.ron");
+const ENCOUNTERS_RON: &str = include_str!("../../content/encounters.ron");
+const ITEMS_RON: &str = include_str!("../../content/items.ron");
 
 /// Parse + validate the embedded species content. Returns an error string on malformed RON or a
 /// content-integrity violation (empty, duplicate ids).
@@ -31,8 +34,39 @@ pub fn load_species() -> Result<Vec<Species>, String> {
         if !seen.insert(s.id.0) {
             return Err(format!("duplicate species id {}", s.id.0));
         }
+        if s.recruit_rate > 1000 {
+            return Err(format!(
+                "species {} recruit_rate {} exceeds 1000 permille",
+                s.id.0, s.recruit_rate
+            ));
+        }
     }
     Ok(species)
+}
+
+/// Parse + validate the embedded wild-encounter table (non-empty, sane weights + level ranges).
+/// Species-reference integrity is checked by [`validate_content`] (it needs the species list).
+pub fn load_encounters() -> Result<EncounterTable, String> {
+    let table: EncounterTable =
+        ron::from_str(ENCOUNTERS_RON).map_err(|e| format!("encounters.ron parse error: {e}"))?;
+    if table.entries.is_empty() {
+        return Err("encounters.ron contains no entries".to_string());
+    }
+    for e in &table.entries {
+        if e.weight == 0 {
+            return Err(format!(
+                "encounter for species {} has zero weight",
+                e.species_id
+            ));
+        }
+        if e.min_level == 0 || e.min_level > e.max_level {
+            return Err(format!(
+                "encounter for species {} has an invalid level range {}..={}",
+                e.species_id, e.min_level, e.max_level
+            ));
+        }
+    }
+    Ok(table)
 }
 
 /// Parse + validate the embedded skill content (unique ids, non-empty).
@@ -51,6 +85,22 @@ pub fn load_skills() -> Result<Vec<Skill>, String> {
     Ok(skills)
 }
 
+/// Parse + validate the embedded item content (unique ids, non-empty).
+pub fn load_items() -> Result<Vec<Item>, String> {
+    let items: Vec<Item> =
+        ron::from_str(ITEMS_RON).map_err(|e| format!("items.ron parse error: {e}"))?;
+    if items.is_empty() {
+        return Err("items.ron contains no items".to_string());
+    }
+    let mut seen = BTreeSet::new();
+    for i in &items {
+        if !seen.insert(i.id) {
+            return Err(format!("duplicate item id {}", i.id));
+        }
+    }
+    Ok(items)
+}
+
 /// Parse the embedded type/affinity chart.
 pub fn load_type_chart() -> Result<TypeChart, String> {
     ron::from_str(AFFINITY_CHART_RON).map_err(|e| format!("affinity_chart.ron parse error: {e}"))
@@ -62,7 +112,9 @@ pub fn validate_content() -> Result<(), String> {
     let species = load_species()?;
     let skills = load_skills()?;
     load_type_chart()?;
+    load_items()?;
     let ids: BTreeSet<u32> = skills.iter().map(|s| s.id.0).collect();
+    let species_ids: BTreeSet<u32> = species.iter().map(|s| s.id.0).collect();
     for sp in &species {
         if sp.skills.is_empty() {
             return Err(format!("species {} has no skills", sp.id.0));
@@ -74,6 +126,15 @@ pub fn validate_content() -> Result<(), String> {
                     sp.id.0, skill.0
                 ));
             }
+        }
+    }
+    // Every encounter must reference a real species, or a wild roll would hit a missing template.
+    for e in &load_encounters()?.entries {
+        if !species_ids.contains(&e.species_id) {
+            return Err(format!(
+                "encounter references unknown species id {}",
+                e.species_id
+            ));
         }
     }
     Ok(())
@@ -125,5 +186,18 @@ mod tests {
     #[test]
     fn content_cross_references_are_valid() {
         validate_content().expect("every species learnset must reference real skills");
+    }
+
+    #[test]
+    fn embedded_encounters_parse_and_resolve() {
+        let table = load_encounters().expect("encounters.ron must parse + validate");
+        assert!(!table.entries.is_empty());
+        // A roll yields a species that exists in the species registry.
+        let species = load_species().unwrap();
+        let (sp, lvl) = table
+            .roll_encounter(0, 0)
+            .expect("non-empty table rolls a wild");
+        assert!(species.iter().any(|s| s.id == sp), "wild species exists");
+        assert!(lvl.0 >= 1, "wild level is in range");
     }
 }

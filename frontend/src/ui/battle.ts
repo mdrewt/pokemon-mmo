@@ -148,6 +148,9 @@ export class BattleScreen {
       const dmg = a.effectiveness.tag === 'NoEffect' ? '' : ` (${a.damage} dmg)`;
       return `${who} used ${skill}!${eff}${dmg}`;
     }
+    if (ev.tag === 'RecruitFailed') {
+      return 'The wild broke free!';
+    }
     // Faint
     const f = ev.value;
     const name = this.#speciesName(f.speciesId);
@@ -183,29 +186,62 @@ export class BattleScreen {
       grid.append(btn);
     }
     menu.append(grid);
+
+    // Action row: recruit (recruit-by-weaken), recruit with bait (if any), and flee.
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;';
+
+    const recruit = this.#button('Recruit');
+    recruit.dataset.recruit = 'plain';
+    recruit.title = 'Lower its HP first for a better chance';
+    recruit.onclick = () => this.#net.attemptRecruit(false);
+    actions.append(recruit);
+
+    const bait = this.#net.baitCount();
+    if (bait > 0) {
+      const baitBtn = this.#button(`Recruit + Bait (${bait})`);
+      baitBtn.dataset.recruit = 'bait';
+      baitBtn.onclick = () => this.#net.attemptRecruit(true);
+      actions.append(baitBtn);
+    }
+
     const flee = this.#button('Flee');
     flee.onclick = () => this.#net.closeBattle();
-    menu.append(flee);
+    actions.append(flee);
+
+    menu.append(actions);
     return menu;
   }
 
   #result(battle: NonNullable<ReturnType<NetHandle['battle']>>): HTMLElement {
-    const won = battle.state.outcome.tag === 'PlayerWon';
+    const outcome = battle.state.outcome.tag;
     const box = document.createElement('div');
     box.style.cssText =
       'align-self:center;display:flex;flex-direction:column;gap:8px;align-items:center;margin-top:8px;';
+
+    const wildName = this.#speciesName(
+      battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
+    );
+    const headline =
+      outcome === 'PlayerWon' ? 'Victory!' : outcome === 'Recruited' ? 'Gotcha!' : 'Defeat…';
+    const color = outcome === 'PlayerLost' ? '#e2553c' : '#5cbf5c';
     const msg = document.createElement('div');
-    msg.textContent = won ? 'Victory!' : 'Defeat…';
-    msg.style.cssText = `font-size:26px;font-weight:700;color:${won ? '#5cbf5c' : '#e2553c'};`;
+    msg.textContent = headline;
+    msg.style.cssText = `font-size:26px;font-weight:700;color:${color};`;
     box.append(msg);
 
-    if (won) {
+    if (outcome === 'PlayerWon') {
       const xp = document.createElement('div');
       xp.textContent = battle.leveledUp
         ? `Your party gained ${battle.lastXpGain} EXP — and leveled up!`
         : `Your party gained ${battle.lastXpGain} EXP.`;
       xp.style.cssText = 'opacity:0.9;';
       box.append(xp);
+    } else if (outcome === 'Recruited') {
+      const note = document.createElement('div');
+      note.textContent = `${wildName} joined your team! Find it in your Box.`;
+      note.style.cssText = 'opacity:0.9;';
+      box.append(note);
     }
 
     const cont = this.#button('Continue');
