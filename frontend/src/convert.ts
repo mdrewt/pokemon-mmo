@@ -60,8 +60,10 @@ export function characterToPredictedBaseline(
 ): WasmCharacterState {
   const base = characterToWasm(c);
   // 2x stepMs in the past guarantees the next input (applied at >= localNow) clears the
-  // cooldown even allowing for small scheduling slack.
-  base.move_started_at = localNow - stepMs * 2;
+  // cooldown even allowing for small scheduling slack. Floor to an integer: `move_started_at`
+  // is `Millis(u64)` in game-core, and `performance.now()` returns fractional ms — a fractional
+  // value makes the wasm serde reject the whole CharacterState ("expected u64").
+  base.move_started_at = Math.floor(localNow) - stepMs * 2;
   return base;
 }
 
