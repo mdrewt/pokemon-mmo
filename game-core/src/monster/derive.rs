@@ -141,6 +141,7 @@ mod tests {
             secondary_affinity: None,
             sprite_id: 0,
             skills: vec![],
+            recruit_rate: 200,
         }
     }
 

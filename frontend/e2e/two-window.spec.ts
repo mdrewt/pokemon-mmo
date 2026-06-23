@@ -303,6 +303,74 @@ test.describe.serial('two-window integration', () => {
     await pageA.keyboard.press('Escape');
   });
 
+  test('a wild monster can be recruited, consuming bait (M8)', async () => {
+    test.setTimeout(150_000);
+    // The previous test leaves the box open; close any overlay so we start from the overworld.
+    await expect
+      .poll(async () => {
+        if (await pageA.locator('#box-screen').isVisible()) {
+          await pageA.keyboard.press('Escape');
+          return false;
+        }
+        return true;
+      })
+      .toBe(true);
+
+    // Each player is granted starter bait on first join.
+    expect((await snapshot(pageA)).baitCount).toBe(5);
+    const startCount = (await snapshot(pageA)).monsters.length;
+
+    // Recruit-by-weaken is probabilistic; attempt across several encounters until one joins. Each
+    // failed attempt forfeits the turn (the wild strikes back), so a battle ends in Recruited or
+    // PlayerLost — never a kill (recruiting deals no damage).
+    let recruited = false;
+    for (let battle = 0; battle < 12 && !recruited; battle++) {
+      // Heal so the party can fight, then start an encounter.
+      await pageA.locator('#app').click();
+      await pageA.keyboard.press('KeyH');
+      await expect
+        .poll(async () => {
+          const m = (await snapshot(pageA)).monsters[0]!;
+          return m.currentHp === m.maxHp;
+        })
+        .toBe(true);
+      await pageA.keyboard.press('KeyF');
+      await expect.poll(async () => (await snapshot(pageA)).battle !== null).toBe(true);
+
+      let guard = 0;
+      while (guard++ < 12) {
+        const g = await snapshot(pageA);
+        if (!g.battle || g.battle.outcome !== 'Ongoing') break;
+        const before = g.battle.turn;
+        // Prefer bait while we have it (a flat recruit bonus); fall back to a plain attempt.
+        const baitBtn = pageA.locator('#battle-screen [data-recruit="bait"]');
+        const btn = (await baitBtn.count()) > 0 ? baitBtn : pageA.locator('#battle-screen [data-recruit="plain"]');
+        await btn.first().click();
+        await expect
+          .poll(async () => {
+            const b = (await snapshot(pageA)).battle;
+            return b === null || b.outcome !== 'Ongoing' || b.turn > before;
+          })
+          .toBe(true);
+      }
+
+      const ended = (await snapshot(pageA)).battle;
+      if (ended?.outcome === 'Recruited') {
+        recruited = true;
+        await expect(pageA.locator('#battle-screen')).toContainText('Gotcha!');
+      }
+      // Dismiss the result screen (Recruited / PlayerLost) back to the overworld.
+      const cont = pageA.locator('#battle-screen').getByText('Continue');
+      if ((await cont.count()) > 0) await cont.click();
+      await expect.poll(async () => (await snapshot(pageA)).battle).toBeNull();
+    }
+
+    expect(recruited).toBe(true);
+    // The recruited wild is now an owned monster (in the box), and bait was consumed along the way.
+    expect((await snapshot(pageA)).monsters.length).toBe(startCount + 1);
+    expect((await snapshot(pageA)).baitCount).toBeLessThan(5);
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

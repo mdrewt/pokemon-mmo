@@ -12,6 +12,11 @@ export class BattleScreen {
   #net: NetHandle;
   #root: HTMLDivElement;
   #unsub: () => void;
+  /** Set when we've sent a recruit attempt and are waiting for the authoritative result, so the next
+   *  still-ongoing battle update can be reported as "the wild broke free!". */
+  #awaitingRecruit = false;
+  /** A one-shot log line (e.g. a failed-recruit notice) shown on the next render then cleared. */
+  #flash: string | null = null;
 
   constructor(net: NetHandle) {
     this.#net = net;
@@ -37,6 +42,9 @@ export class BattleScreen {
   }
 
   show(): void {
+    // Reset per-battle transient view state so a stale recruit flag can't fire on a fresh encounter.
+    this.#awaitingRecruit = false;
+    this.#flash = null;
     this.#root.style.display = 'flex';
     this.#render();
   }
@@ -71,6 +79,17 @@ export class BattleScreen {
     const enemy = state.enemy.team[state.enemy.active];
     const player = state.player.team[state.player.active];
     if (!enemy || !player) return;
+
+    // Resolve a pending recruit attempt: if we were waiting and the battle is still ongoing, the
+    // wild resisted (a success would have flipped the outcome to Recruited).
+    if (state.outcome.tag === 'Ongoing') {
+      if (this.#awaitingRecruit) {
+        this.#flash = 'The wild broke free!';
+        this.#awaitingRecruit = false;
+      }
+    } else {
+      this.#awaitingRecruit = false;
+    }
 
     // Enemy (top, right-aligned) and player (bottom, left-aligned) combatant panels.
     this.#root.append(this.#combatant(enemy, true), this.#log(battle), this.#combatant(player, false));
@@ -123,6 +142,11 @@ export class BattleScreen {
             )} appeared!`,
           ]
         : battle.lastEvents.map((ev) => this.#eventLine(ev));
+    // A one-shot notice (e.g. "broke free!") leads the log for this render, then clears.
+    if (this.#flash !== null) {
+      lines.unshift(this.#flash);
+      this.#flash = null;
+    }
     for (const text of lines) {
       const line = document.createElement('div');
       line.textContent = text;
@@ -183,29 +207,68 @@ export class BattleScreen {
       grid.append(btn);
     }
     menu.append(grid);
+
+    // Action row: recruit (recruit-by-weaken), recruit with bait (if any), and flee.
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;';
+
+    const recruit = this.#button('Recruit');
+    recruit.dataset.recruit = 'plain';
+    recruit.title = 'Lower its HP first for a better chance';
+    recruit.onclick = () => {
+      this.#awaitingRecruit = true;
+      this.#net.attemptRecruit(false);
+    };
+    actions.append(recruit);
+
+    const bait = this.#net.baitCount();
+    if (bait > 0) {
+      const baitBtn = this.#button(`Recruit + Bait (${bait})`);
+      baitBtn.dataset.recruit = 'bait';
+      baitBtn.onclick = () => {
+        this.#awaitingRecruit = true;
+        this.#net.attemptRecruit(true);
+      };
+      actions.append(baitBtn);
+    }
+
     const flee = this.#button('Flee');
     flee.onclick = () => this.#net.closeBattle();
-    menu.append(flee);
+    actions.append(flee);
+
+    menu.append(actions);
     return menu;
   }
 
   #result(battle: NonNullable<ReturnType<NetHandle['battle']>>): HTMLElement {
-    const won = battle.state.outcome.tag === 'PlayerWon';
+    const outcome = battle.state.outcome.tag;
     const box = document.createElement('div');
     box.style.cssText =
       'align-self:center;display:flex;flex-direction:column;gap:8px;align-items:center;margin-top:8px;';
+
+    const wildName = this.#speciesName(
+      battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
+    );
+    const headline =
+      outcome === 'PlayerWon' ? 'Victory!' : outcome === 'Recruited' ? 'Gotcha!' : 'Defeat…';
+    const color = outcome === 'PlayerLost' ? '#e2553c' : '#5cbf5c';
     const msg = document.createElement('div');
-    msg.textContent = won ? 'Victory!' : 'Defeat…';
-    msg.style.cssText = `font-size:26px;font-weight:700;color:${won ? '#5cbf5c' : '#e2553c'};`;
+    msg.textContent = headline;
+    msg.style.cssText = `font-size:26px;font-weight:700;color:${color};`;
     box.append(msg);
 
-    if (won) {
+    if (outcome === 'PlayerWon') {
       const xp = document.createElement('div');
       xp.textContent = battle.leveledUp
         ? `Your party gained ${battle.lastXpGain} EXP — and leveled up!`
         : `Your party gained ${battle.lastXpGain} EXP.`;
       xp.style.cssText = 'opacity:0.9;';
       box.append(xp);
+    } else if (outcome === 'Recruited') {
+      const note = document.createElement('div');
+      note.textContent = `${wildName} joined your team! Find it in your Box.`;
+      note.style.cssText = 'opacity:0.9;';
+      box.append(note);
     }
 
     const cont = this.#button('Continue');

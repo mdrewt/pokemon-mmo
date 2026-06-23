@@ -29,4 +29,5 @@ export default __t.row({
   },
   spriteId: __t.u32().name("sprite_id"),
   skills: __t.array(__t.u32()),
+  recruitRate: __t.u16().name("recruit_rate"),
 });

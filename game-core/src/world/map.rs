@@ -16,6 +16,10 @@ pub struct TileMap {
     pub height: i32,
     /// Row-major, length == `width * height`.
     pub walkable: Vec<bool>,
+    /// Row-major, length == `width * height`. `true` = tall grass: walkable, but stepping onto it
+    /// may trigger a wild encounter (the roll lives in the server tick, not here). Grass is always
+    /// walkable, so this is a strict subset of `walkable`.
+    pub grass: Vec<bool>,
 }
 
 impl TileMap {
@@ -34,14 +38,28 @@ impl TileMap {
                 .unwrap_or(false)
     }
 
-    /// Build a map from string-art rows (`.` walkable, anything else blocked). All rows must
-    /// share the first row's length. Used by [`poc_map`] and tests.
+    /// Whether `pos` is tall grass (in bounds + a grass tile). Always implies `is_walkable`.
+    pub fn is_grass(&self, pos: TilePos) -> bool {
+        self.in_bounds(pos)
+            && self
+                .grass
+                .get((pos.y * self.width + pos.x) as usize)
+                .copied()
+                .unwrap_or(false)
+    }
+
+    /// Build a map from string-art rows: `#` blocked, `.` plain walkable, `,` tall grass (walkable +
+    /// encounters). All rows must share the first row's length. Used by [`poc_map`] and tests.
     pub(crate) fn from_rows(rows: &[&str]) -> TileMap {
         let height = rows.len() as i32;
         let width = rows.first().map_or(0, |r| r.len() as i32);
         let walkable: Vec<bool> = rows
             .iter()
-            .flat_map(|row| row.chars().map(|c| c == '.'))
+            .flat_map(|row| row.chars().map(|c| c == '.' || c == ','))
+            .collect();
+        let grass: Vec<bool> = rows
+            .iter()
+            .flat_map(|row| row.chars().map(|c| c == ','))
             .collect();
         debug_assert_eq!(
             walkable.len() as i32,
@@ -52,27 +70,29 @@ impl TileMap {
             width,
             height,
             walkable,
+            grass,
         }
     }
 }
 
-/// The single POC map (20×15), hand-authored as string art (`.` walkable, `#` blocked).
-/// Shared verbatim by client and server.
+/// The single POC map (20×15), hand-authored as string art (`#` blocked, `.` walkable, `,` tall
+/// grass). Shared verbatim by client and server. Two grass patches (top-right, bottom-left) seed
+/// wild encounters.
 pub fn poc_map() -> TileMap {
     const ROWS: [&str; 15] = [
         "####################",
         "#..................#",
         "#..####....####....#",
-        "#..................#",
-        "#....####..........#",
+        "#..........,,,,....#",
+        "#....####..,,,,....#",
         "#..................#",
         "#........##........#",
         "#........##........#",
         "#..................#",
         "#..........####....#",
         "#..####............#",
-        "#..................#",
-        "#..................#",
+        "#..,,,,............#",
+        "#..,,,,............#",
         "#..................#",
         "####################",
     ];
@@ -120,6 +140,31 @@ mod tests {
     fn interior_obstacle_is_blocked() {
         // Row 6 has a `##` obstacle at x = 9..=10.
         assert!(!poc_map().is_walkable(TilePos { x: 9, y: 6 }));
+    }
+
+    #[test]
+    fn grass_tiles_are_walkable_and_marked() {
+        let m = poc_map();
+        // Top-right grass patch (rows 3-4, x 11-14).
+        let g = TilePos { x: 11, y: 3 };
+        assert!(m.is_grass(g), "grass tile is grass");
+        assert!(m.is_walkable(g), "grass is always walkable");
+        // A plain tile is walkable but not grass.
+        let plain = TilePos { x: 1, y: 1 };
+        assert!(m.is_walkable(plain));
+        assert!(!m.is_grass(plain), "plain tile is not grass");
+        // The two arrays agree on length, and grass ⊆ walkable.
+        assert_eq!(m.grass.len(), m.walkable.len());
+        for (w, gr) in m.walkable.iter().zip(&m.grass) {
+            assert!(!gr || *w, "every grass tile must be walkable");
+        }
+    }
+
+    #[test]
+    fn out_of_bounds_is_not_grass() {
+        let m = poc_map();
+        assert!(!m.is_grass(TilePos { x: -1, y: 3 }));
+        assert!(!m.is_grass(TilePos { x: 100, y: 100 }));
     }
 
     #[test]

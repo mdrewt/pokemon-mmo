@@ -19,6 +19,9 @@ const FLOOR_ALT = 0x27324a;
 const WALL = 0x12161f;
 const WALL_TOP = 0x1c2230;
 const GRID_LINE = 0x1a2233;
+const GRASS = 0x2f5d3a;
+const GRASS_ALT = 0x29512f;
+const GRASS_BLADE = 0x3f7a4c;
 
 export function pixelWidth(map: WasmMap): number {
   return map.width * TILE_PX;
@@ -45,10 +48,17 @@ export function buildTilemap(map: WasmMap): Container {
     for (let x = 0; x < map.width; x++) {
       const idx = y * map.width + x;
       const walkable = map.walkable[idx] ?? false;
+      const grass = map.grass[idx] ?? false;
       const px = x * TILE_PX;
       const py = y * TILE_PX;
 
-      if (walkable) {
+      if (grass) {
+        // Tall grass: a distinct green so encounter zones read at a glance, with a couple of blades.
+        g.rect(px, py, TILE_PX, TILE_PX).fill((x + y) % 2 === 0 ? GRASS : GRASS_ALT);
+        g.rect(px + TILE_PX * 0.3, py + TILE_PX * 0.55, TILE_PX * 0.1, TILE_PX * 0.35).fill(GRASS_BLADE);
+        g.rect(px + TILE_PX * 0.6, py + TILE_PX * 0.45, TILE_PX * 0.1, TILE_PX * 0.45).fill(GRASS_BLADE);
+        g.rect(px, py, TILE_PX, TILE_PX).stroke({ width: 1, color: GRID_LINE });
+      } else if (walkable) {
         const checker = (x + y) % 2 === 0 ? FLOOR : FLOOR_ALT;
         g.rect(px, py, TILE_PX, TILE_PX).fill(checker);
         // Subtle grid line for readability.

@@ -204,6 +204,10 @@ pub struct Species {
     pub sprite_id: u32,
     /// The skills this species can use in battle (M7 learnset; M9 will let raising shape it).
     pub skills: Vec<SkillId>,
+    /// Base recruit chance in permille (0..=1000) when encountered at full HP — the species'
+    /// catch difficulty (M8 taming). Weakening it in battle raises the effective chance; see
+    /// `crate::recruit_chance`. Common species are higher, rarer ones lower.
+    pub recruit_rate: u16,
 }
 
 /// An owned, individual monster — the in-memory domain form. The server `monster` table mirrors

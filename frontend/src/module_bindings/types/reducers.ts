@@ -6,6 +6,7 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AttemptRecruitReducer from "../attempt_recruit_reducer";
 import ClearQueueReducer from "../clear_queue_reducer";
 import CloseBattleReducer from "../close_battle_reducer";
 import EnqueueMoveReducer from "../enqueue_move_reducer";
@@ -17,6 +18,7 @@ import SetPartySlotReducer from "../set_party_slot_reducer";
 import StartBattleReducer from "../start_battle_reducer";
 import SubmitActionReducer from "../submit_action_reducer";
 
+export type AttemptRecruitParams = __Infer<typeof AttemptRecruitReducer>;
 export type ClearQueueParams = __Infer<typeof ClearQueueReducer>;
 export type CloseBattleParams = __Infer<typeof CloseBattleReducer>;
 export type EnqueueMoveParams = __Infer<typeof EnqueueMoveReducer>;

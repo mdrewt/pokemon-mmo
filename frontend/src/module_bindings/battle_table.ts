@@ -11,6 +11,8 @@ import {
 } from "spacetimedb";
 import {
   BattleState,
+  Potential,
+  Temperament,
   BattleEvent,
 } from "./types";
 
@@ -22,6 +24,12 @@ export default __t.row({
   },
   enemyLevel: __t.u8().name("enemy_level"),
   partyMonsterIds: __t.array(__t.u64()).name("party_monster_ids"),
+  get wildPotential() {
+    return Potential.name("wild_potential");
+  },
+  get wildTemperament() {
+    return Temperament.name("wild_temperament");
+  },
   get lastEvents() {
     return __t.array(BattleEvent).name("last_events");
   },
