@@ -163,6 +163,12 @@ full Design-by-Contract vs. KISS). Don't cargo-cult; follow the tiers.
 - **Data-driven development.** This is a *content* game: monsters, items, moves, encounter
   tables, NPC configs, Tiled maps should be **data, not code**, driving generic systems. This is
   the difference between scaling to a real game and a pile of hardcoded special cases.
+  - *Content pipeline (M6+):* content lives in **RON files under `game-core/content/`**, embedded
+    at build time via `include_str!` and parsed into a typed registry by a pure `game-core` fn
+    (`load_species`; parse-don't-validate, integrity-tested). The server **seeds it into a public,
+    read-only table at `init`** (the table is the runtime cache — reducers read it, never re-parse;
+    a module can't hold a mutable static cache). Clients read content from their subscription, so
+    it's never duplicated in TS. game-core stays pure (no runtime fs).
 - **Loose coupling + SRP + DIP at seams.** SRP universally; DIP where it buys testability (the
   `Predictor`'s injected `PredictFn` is exactly this). Don't add interfaces everywhere "for
   flexibility" — that fights KISS in Rust.
@@ -226,9 +232,22 @@ radius spans `client-wasm` + `server-module`). Dev note: an incompatible schema 
 
 ## Milestones
 
-M0 contracts & setup (this) · M1 `game-core` (test-first) · M2 `server-module` · M3
-`client-wasm` · M4 `frontend` (+ dev debug HUD) · M5 two-window integration. One PR per
-milestone → CI + reviews → merge.
+**POC (done):** M0 contracts & setup · M1 `game-core` (test-first) · M2 `server-module` · M3
+`client-wasm` · M4 `frontend` (+ dev debug HUD) · M5 two-window integration.
+
+**Game (in progress):** M6 monster foundation & individuality (data model + RON content + box/party,
+done) · M7 battle · M8 finding & taming · M9 raising · M10 evolution & fusion · M11 multiplayer.
+One PR per milestone → CI + reviews → merge. (See the project plan/memory for the full vision.)
+
+### Frontend screen state (M6+)
+
+The frontend routes distinct screens (`overworld | box | battle | menu`) through a minimal
+enum-driven `ScreenManager` (`ui/screen.ts`) — no FSM library. Movement input is gated to the
+overworld; menus are HTML overlays that read authoritative state from the store and call
+ownership-checked reducers (input → intent → reducer; subscription → state → render). They never
+mutate state locally. Owner-scoped data (e.g. monster hidden genes) is kept off other clients' wire
+via a **Row-Level Security `client_visibility_filter`** on the `monster` table, not just a public
+table — see the Security invariants.
 
 ## Scaling path
 

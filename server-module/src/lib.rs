@@ -242,7 +242,10 @@ fn core_species(row: &Species) -> CoreSpecies {
     }
 }
 
-/// Build a `monster` row from a freshly-rolled instance, computing its derived stats in game-core.
+/// Build a `monster` row from an instance, always (re)computing the authoritative `derived` stat
+/// block here in game-core — this is the SSOT for that column, so callers must never trust a stored
+/// `derived`. (The starter path derives once more inside `roll_starter` for `current_hp`; a cheap,
+/// intentional redundancy at join time.)
 fn monster_row(
     owner: Identity,
     species: &CoreSpecies,
