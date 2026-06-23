@@ -13,6 +13,7 @@ import { InputController } from './input/input';
 import { showNameEntry } from './ui/nameEntry';
 import { DebugHud } from './ui/hud';
 import { characterToPredictedBaseline, moveQueueToWasm, wasmToSdkMoveInput } from './convert';
+import { installIntrospection } from './test/introspect';
 import type { WasmFacing } from './wasm';
 
 async function bootstrap(): Promise<void> {
@@ -77,6 +78,12 @@ async function bootstrap(): Promise<void> {
 
   const hud = new DebugHud({ net, predictor: () => predictor });
 
+  // Dev/test-only: expose a read-only state snapshot for the two-window Playwright e2e (M5).
+  // Stripped from production builds (gated on import.meta.env.DEV).
+  if (import.meta.env.DEV) {
+    installIntrospection(net, () => predictor, step);
+  }
+
   // Reconcile only when the authoritative own character row OR the ack actually changes (they
   // arrive in separate table callbacks, so reading both from the store after the batch keeps them
   // consistent — see the M4 reconcile-ordering fix). Between updates the predictor drains locally,
@@ -86,7 +93,7 @@ async function bootstrap(): Promise<void> {
 
   // The direction the client has committed the character to (the intent, tracked separately from
   // the queue so it survives the buffer draining). A change commits a responsive turn; a sustained
-  // hold queues one lookahead at a time; a tap commits exactly one step.
+  // hold queues the next step at completion; a tap commits exactly one step.
   let committedDir: WasmFacing | null = null;
 
   // Step 6: game loop, gated on wasm ready.

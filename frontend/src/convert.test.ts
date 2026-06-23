@@ -25,6 +25,15 @@ describe('characterToPredictedBaseline', () => {
     expect(base.move_started_at).toBe(30336 - 400);
   });
 
+  // Regression: when the page is younger than two steps (performance.now() < 2*stepMs, e.g. a
+  // client that joins and moves within ~400ms of load), `localNow - 2*step` is negative — also not
+  // a valid u64. Clamp at 0 so prediction doesn't crash. Found by the M5 two-window e2e.
+  it('clamps move_started_at at 0 for a freshly-loaded page', () => {
+    const base = characterToPredictedBaseline(fakeChar(), 144, 200);
+    expect(base.move_started_at).toBe(0);
+    expect(base.move_started_at).toBeGreaterThanOrEqual(0);
+  });
+
   it('keeps the tile/facing/action from the row', () => {
     const base = characterToPredictedBaseline(fakeChar(), 1000.5, 200);
     expect(base.pos).toEqual({ x: 4, y: 5 });
