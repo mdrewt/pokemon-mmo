@@ -92,14 +92,6 @@ pub struct CharacterState {
     pub pos: TilePos,
     pub facing: Direction,
     pub action: ActionState,
-    /// When the current action began — used server-side for the cooldown check.
+    /// When the current move started (drives the slide animation / drain timing).
     pub move_started_at: Millis,
-}
-
-/// Why an input was rejected. An `Err` aborts the reducer transaction; the client reconciles.
-/// (Note: a legal no-op like bumping a wall is `Ok`, not an error.)
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MoveError {
-    /// The movement cooldown has not yet elapsed since `move_started_at`.
-    TooSoon,
 }

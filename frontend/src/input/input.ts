@@ -1,18 +1,12 @@
-// Keyboard -> MoveInput intent. Arrow/WASD = Step(dir); Space = Jump. Grid movement: no
-// diagonals; when perpendicular keys are held simultaneously, the most-recently-pressed
-// wins. Window blur clears held keys.
+// Keyboard → movement intent. Arrow/WASD = Step(dir); Space = Jump. Grid movement: no
+// diagonals; when perpendicular keys are held simultaneously, the most-recently-pressed wins.
+// Window blur clears held keys.
 //
-// The next step is gated on the current step's animation completing (~step_ms) so honest
-// clients never trip the server cooldown (ARCHITECTURE.md). A held key repeats once the
-// gate opens.
-//
-// This module only decides intent and calls back; it does not predict or network. The
-// callback is wired in main.ts to: apply via prediction (immediate) AND submit to the
-// server.
+// This module only tracks WHAT the player wants right now; it does not pace, predict, or network.
+// `main.ts` polls `heldDir()` / `takeJump()` each frame and decides whether to enqueue (the move
+// buffer's free space is the pacing — flow control lives in the prediction/net layer).
 
-import type { WasmFacing, WasmMoveInput } from '../wasm';
-
-export type IntentHandler = (input: WasmMoveInput) => void;
+import type { WasmFacing } from '../wasm';
 
 const ARROW_TO_DIR: Record<string, WasmFacing> = {
   ArrowUp: 'North',
@@ -25,38 +19,20 @@ const ARROW_TO_DIR: Record<string, WasmFacing> = {
   KeyD: 'East',
 };
 
-export interface InputControllerOptions {
-  /** Step cadence gate (ms) — typically step_ms. */
-  stepMs: number;
-  /** Called with each emitted intent. */
-  onIntent: IntentHandler;
-  /** Monotonic clock; injectable for tests. Defaults to performance.now. */
-  now?: () => number;
-}
-
 export class InputController {
-  #stepMs: number;
-  #onIntent: IntentHandler;
-  #now: () => number;
-
   /** Directions currently held, in press order (most recent last). */
   #heldDirs: WasmFacing[] = [];
-  #jumpHeld = false;
-  /** Last time we emitted a Step intent (for the cadence gate). */
-  #lastStepAt = -Infinity;
+  /** Set on a Space press; consumed once by `takeJump()`. */
+  #jumpLatched = false;
+  /** Set on a stop/cancel press (Escape); consumed once by `takeClear()`. A placeholder for the
+   *  real stop-movement actions (open menu, interact) until those exist. */
+  #clearLatched = false;
   #enabled = false;
 
   #onKeyDown = (e: KeyboardEvent): void => this.#handleKeyDown(e);
   #onKeyUp = (e: KeyboardEvent): void => this.#handleKeyUp(e);
   #onBlur = (): void => this.#clear();
 
-  constructor(opts: InputControllerOptions) {
-    this.#stepMs = opts.stepMs;
-    this.#onIntent = opts.onIntent;
-    this.#now = opts.now ?? (() => performance.now());
-  }
-
-  /** Begin listening for keyboard input. */
   enable(): void {
     if (this.#enabled) return;
     this.#enabled = true;
@@ -74,49 +50,45 @@ export class InputController {
     this.#clear();
   }
 
-  /**
-   * Called each frame (from the ticker) to emit a buffered/held Step once the cadence gate
-   * has elapsed. Jump is emitted on keydown directly (it does not auto-repeat).
-   */
-  tick(): void {
-    if (this.#heldDirs.length === 0) return;
-    const now = this.#now();
-    if (now - this.#lastStepAt < this.#stepMs) return;
-    const dir = this.#heldDirs[this.#heldDirs.length - 1];
-    if (dir === undefined) return;
-    this.#lastStepAt = now;
-    this.#onIntent({ Step: dir });
+  /** The currently-held step direction (most-recent-wins), or null if none is held. */
+  heldDir(): WasmFacing | null {
+    return this.#heldDirs.at(-1) ?? null;
+  }
+
+  /** Returns true once if Jump was pressed since the last call (consumes the latch). */
+  takeJump(): boolean {
+    const j = this.#jumpLatched;
+    this.#jumpLatched = false;
+    return j;
+  }
+
+  /** Returns true once if a stop/cancel (Escape) was pressed since the last call. */
+  takeClear(): boolean {
+    const c = this.#clearLatched;
+    this.#clearLatched = false;
+    return c;
   }
 
   #handleKeyDown(e: KeyboardEvent): void {
-    if (e.repeat) return; // OS key-repeat ignored; we pace via tick()
+    if (e.repeat) return; // hold is handled by polling, not OS key-repeat
     if (e.code === 'Space') {
       e.preventDefault();
-      if (!this.#jumpHeld) {
-        this.#jumpHeld = true;
-        this.#onIntent('Jump');
-      }
+      this.#jumpLatched = true;
+      return;
+    }
+    if (e.code === 'Escape') {
+      this.#clearLatched = true;
       return;
     }
     const dir = ARROW_TO_DIR[e.code];
     if (!dir) return;
     e.preventDefault();
-    // Most-recent-wins: move to the end of the held list.
+    // Most-recent-wins: move this direction to the end of the held list.
     this.#heldDirs = this.#heldDirs.filter((d) => d !== dir);
     this.#heldDirs.push(dir);
-    // Emit immediately if the gate is already open (responsive first step).
-    const now = this.#now();
-    if (now - this.#lastStepAt >= this.#stepMs) {
-      this.#lastStepAt = now;
-      this.#onIntent({ Step: dir });
-    }
   }
 
   #handleKeyUp(e: KeyboardEvent): void {
-    if (e.code === 'Space') {
-      this.#jumpHeld = false;
-      return;
-    }
     const dir = ARROW_TO_DIR[e.code];
     if (!dir) return;
     this.#heldDirs = this.#heldDirs.filter((d) => d !== dir);
@@ -124,6 +96,7 @@ export class InputController {
 
   #clear(): void {
     this.#heldDirs = [];
-    this.#jumpHeld = false;
+    this.#jumpLatched = false;
+    this.#clearLatched = false;
   }
 }

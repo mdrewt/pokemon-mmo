@@ -34,8 +34,10 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import ClearQueueReducer from "./clear_queue_reducer";
+import EnqueueMoveReducer from "./enqueue_move_reducer";
 import JoinGameReducer from "./join_game_reducer";
-import SubmitInputReducer from "./submit_input_reducer";
+import SetMoveReducer from "./set_move_reducer";
 
 // Import all procedure arg schemas
 
@@ -97,8 +99,10 @@ const tablesSchema = __schema({
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("clear_queue", ClearQueueReducer),
+  __reducerSchema("enqueue_move", EnqueueMoveReducer),
   __reducerSchema("join_game", JoinGameReducer),
-  __reducerSchema("submit_input", SubmitInputReducer),
+  __reducerSchema("set_move", SetMoveReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

@@ -31,6 +31,9 @@ export const Character = __t.object("Character", {
   },
   moveStartedAtMs: __t.i64(),
   spriteId: __t.u32(),
+  get moveQueue() {
+    return __t.array(MoveInput);
+  },
 });
 export type Character = __Infer<typeof Character>;
 
@@ -58,6 +61,12 @@ export const MoveInput = __t.enum("MoveInput", {
 });
 export type MoveInput = __Infer<typeof MoveInput>;
 
+export const MovementTickSchedule = __t.object("MovementTickSchedule", {
+  id: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type MovementTickSchedule = __Infer<typeof MovementTickSchedule>;
+
 export const Npc = __t.object("Npc", {
   entityId: __t.u64(),
   homeX: __t.i32(),
@@ -66,12 +75,6 @@ export const Npc = __t.object("Npc", {
   nextMoveAtMs: __t.i64(),
 });
 export type Npc = __Infer<typeof Npc>;
-
-export const NpcTickSchedule = __t.object("NpcTickSchedule", {
-  id: __t.u64(),
-  scheduledAt: __t.scheduleAt(),
-});
-export type NpcTickSchedule = __Infer<typeof NpcTickSchedule>;
 
 export const Player = __t.object("Player", {
   identity: __t.identity(),

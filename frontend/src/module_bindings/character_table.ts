@@ -12,6 +12,7 @@ import {
 import {
   Direction,
   ActionState,
+  MoveInput,
 } from "./types";
 
 
@@ -28,4 +29,7 @@ export default __t.row({
   },
   moveStartedAtMs: __t.i64().name("move_started_at_ms"),
   spriteId: __t.u32().name("sprite_id"),
+  get moveQueue() {
+    return __t.array(MoveInput).name("move_queue");
+  },
 });

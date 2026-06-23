@@ -39,19 +39,19 @@ export function characterToWasm(c: Character): WasmCharacterState {
 }
 
 /**
- * Convert an authoritative Character into a prediction baseline whose `move_started_at`
- * lives in the LOCAL clock (performance.now), not the server's epoch clock.
+ * Convert an authoritative Character into a prediction baseline whose `move_started_at` lives in
+ * the LOCAL clock (performance.now), not the server's epoch clock.
  *
- * The server stores `move_started_at` as a Timestamp (epoch ms) — authoritative
- * bookkeeping, NOT a client interpolation/cooldown clock (ARCHITECTURE.md "No client/server
- * clock sync"). If we fed the raw epoch value into the wasm cooldown check it would compare
- * `performance.now()` (small) against an epoch value (huge) and saturate to 0, spuriously
- * rejecting the first predicted input as TooSoon. The server already enforced the real
- * cooldown, so we rebase the baseline so any next/replayed input clears the cooldown. We
- * push it a full step before `localNow` minus a margin: the FIRST input applied or replayed
- * from this baseline always clears the cooldown, while inter-input cooldowns during replay
- * are governed by the pending inputs' own (real performance.now) timestamps, which the input
- * cadence gate already spaced at least `stepMs` apart.
+ * The server stores `move_started_at` as epoch ms — authoritative bookkeeping, NOT a client
+ * drain/interpolation clock (ARCHITECTURE.md "No client/server clock sync"). The predictor's local
+ * drain decides a move is due when `localNow - move_started_at >= stepMs`; feeding the raw epoch
+ * value (huge) would never let the first move drain. So we rebase the baseline to two steps before
+ * `localNow`, which guarantees the first queued move drains immediately on the next frame, while
+ * subsequent moves chain from their own (local) drain times.
+ *
+ * Floor to an integer: `move_started_at` is `Millis(u64)` in game-core, and `performance.now()`
+ * returns fractional ms — a fractional value makes the wasm serde reject the whole CharacterState
+ * ("expected u64").
  */
 export function characterToPredictedBaseline(
   c: Character,
@@ -59,10 +59,6 @@ export function characterToPredictedBaseline(
   stepMs: number,
 ): WasmCharacterState {
   const base = characterToWasm(c);
-  // 2x stepMs in the past guarantees the next input (applied at >= localNow) clears the
-  // cooldown even allowing for small scheduling slack. Floor to an integer: `move_started_at`
-  // is `Millis(u64)` in game-core, and `performance.now()` returns fractional ms — a fractional
-  // value makes the wasm serde reject the whole CharacterState ("expected u64").
   base.move_started_at = Math.floor(localNow) - stepMs * 2;
   return base;
 }
@@ -79,6 +75,11 @@ export function moveInputToWasm(input: MoveInput): WasmMoveInput {
   }
   // Step carries a Direction payload.
   return { Step: input.value.tag };
+}
+
+/** Convert an authoritative `move_queue` (SDK) into the wasm/game-core shape for prediction. */
+export function moveQueueToWasm(queue: MoveInput[]): WasmMoveInput[] {
+  return queue.map(moveInputToWasm);
 }
 
 // ── wasm serde value -> SDK tagged value (for submitting intent to the server) ─

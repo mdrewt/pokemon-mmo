@@ -62,18 +62,22 @@ export class DebugHud {
     let authTile = '—';
     let nextSeq = '—';
     let pending = '—';
+    let queue = '—';
+    let serverQueue = '—';
 
     if (predictor) {
       const p = predictor.predicted.pos;
       predictedTile = `(${p.x}, ${p.y})`;
       nextSeq = predictor.nextSeq.toString();
       pending = predictor.pendingCount.toString();
+      queue = predictor.queueDepth.toString();
     }
     if (ownId !== undefined) {
       const stored = net.store.characters.get(ownId);
       if (stored) {
         const a = characterToWasm(stored.row).pos;
         authTile = `(${a.x}, ${a.y})`;
+        serverQueue = stored.row.moveQueue.length.toString();
       }
     }
 
@@ -86,6 +90,8 @@ export class DebugHud {
       `nextSeq:   ${nextSeq}`,
       `ackedSeq:  ${acked.toString()}`,
       `pending:   ${pending}`,
+      `queue:     ${queue}`,
+      `srvQueue:  ${serverQueue}`,
     ].join('\n');
   }
 

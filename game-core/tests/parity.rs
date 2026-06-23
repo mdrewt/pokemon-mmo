@@ -1,13 +1,14 @@
-//! Prediction-parity / reconciliation regression net.
+//! Prediction-parity / reconciliation regression net for the move-buffer model.
 //!
-//! Both the client (prediction) and the server (authority) drive movement through the *same*
-//! `game_core::resolve_input`. These tests pin the two invariants that prevent desync:
-//! 1. The same input sequence yields the same final state (client == server).
-//! 2. Replaying the unacked tail of inputs from an authoritative snapshot reproduces the full
-//!    predicted state — the property the client's reconciliation relies on.
+//! Movement is server-paced: a queue of `MoveInput`s is drained one per `STEP_MS` via the SINGLE
+//! shared rule `game_core::apply_move` — the server's `movement_tick` and the client's local
+//! prediction both call it. These tests pin the two invariants that prevent desync:
+//! 1. Draining the same input sequence yields the same final state (client drain == server tick).
+//! 2. Replaying the un-acked tail from an authoritative snapshot reproduces the full drained state
+//!    — the property the client's reconciliation relies on.
 
 use game_core::{
-    poc_map, resolve_input, ActionState, CharacterState, Direction, Millis, MoveInput, TilePos,
+    apply_move, poc_map, ActionState, CharacterState, Direction, Millis, MoveInput, TilePos,
     STEP_MS,
 };
 
@@ -20,20 +21,19 @@ fn spawn() -> CharacterState {
     }
 }
 
-/// Apply a sequence of inputs from spawn, advancing time by `STEP_MS` each step so the cooldown
-/// always passes. Returns the final state.
-fn run(seq: &[MoveInput]) -> CharacterState {
+/// Drain a queue of inputs, one per `STEP_MS`, through the shared rule. Returns the final state.
+fn drain(seq: &[MoveInput]) -> CharacterState {
     let map = poc_map();
     let mut state = spawn();
     for (i, &input) in seq.iter().enumerate() {
         let now = Millis(STEP_MS * (i as u64 + 1));
-        state = resolve_input(&state, input, &map, now, STEP_MS).unwrap();
+        state = apply_move(&state, input, &map, now);
     }
     state
 }
 
 #[test]
-fn client_and_server_agree_for_same_input_sequence() {
+fn client_and_server_drain_agree_for_same_sequence() {
     let seq = [
         MoveInput::Step(Direction::East),
         MoveInput::Step(Direction::East),
@@ -41,11 +41,11 @@ fn client_and_server_agree_for_same_input_sequence() {
         MoveInput::Jump,
         MoveInput::Step(Direction::North),
     ];
-    assert_eq!(run(&seq), run(&seq));
+    assert_eq!(drain(&seq), drain(&seq));
 }
 
 #[test]
-fn reconciliation_replay_matches_full_run() {
+fn reconciliation_replay_matches_full_drain() {
     let seq = [
         MoveInput::Step(Direction::East),
         MoveInput::Step(Direction::South),
@@ -53,21 +53,19 @@ fn reconciliation_replay_matches_full_run() {
         MoveInput::Jump,
     ];
     let map = poc_map();
-    let full = run(&seq);
+    let full = drain(&seq);
 
-    // Authoritative snapshot after the first `k` inputs are acked.
+    // Authoritative snapshot after the first `k` moves have been drained + acked.
     let k = 2;
     let mut auth = spawn();
     for (i, &input) in seq.iter().enumerate().take(k) {
-        let now = Millis(STEP_MS * (i as u64 + 1));
-        auth = resolve_input(&auth, input, &map, now, STEP_MS).unwrap();
+        auth = apply_move(&auth, input, &map, Millis(STEP_MS * (i as u64 + 1)));
     }
 
-    // Replay the unacked tail from the authoritative snapshot (same timestamps).
+    // Replay the un-acked tail from the authoritative snapshot (same timestamps).
     let mut replayed = auth;
     for (i, &input) in seq.iter().enumerate().skip(k) {
-        let now = Millis(STEP_MS * (i as u64 + 1));
-        replayed = resolve_input(&replayed, input, &map, now, STEP_MS).unwrap();
+        replayed = apply_move(&replayed, input, &map, Millis(STEP_MS * (i as u64 + 1)));
     }
 
     assert_eq!(replayed, full);

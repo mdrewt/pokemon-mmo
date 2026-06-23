@@ -1,111 +1,142 @@
-// Client-side prediction + reconciliation for the local player's own character.
+// Client-side prediction for the local player's own character under the server-paced move-buffer
+// model.
 //
-// PURE of Pixi and of the wasm module: the predict function is injected, so this is
-// unit-testable in node with a mocked predict_input (see predictor.test.ts). All game
-// rules live in game-core via that injected function; this file only sequences inputs,
-// tracks acks, and replays.
+// PURE of Pixi and of the wasm module: the `applyMove` function is injected, so this is
+// unit-testable in node with a mock (see predictor.test.ts). All game rules live in game-core via
+// that injected function; this file only buffers inputs, drains them on the same `STEP_MS` cadence
+// the server ticks at, and reconciles against authoritative state.
 //
-// See ARCHITECTURE.md "Prediction & reconciliation state machine".
+// State:
+// - `#predicted` — the own character's predicted state (what the renderer shows). Advanced only by
+//                  `drain` (discrete, so the slide animation stays stable between steps).
+// - `#queue`     — predicted moves not yet drained locally (rebuilt by `reconcile`).
+// - `#pending`   — queue OPERATIONS sent to the server but not yet acked (`seq > last_input_seq`).
+//                  Kept as ops (enqueue / setMove / clear) — not bare inputs — so `reconcile` can
+//                  replay them faithfully on top of authoritative truth (a setMove/clear that the
+//                  server hasn't applied yet still clears the stale authoritative queue in replay).
 
-import type { WasmCharacterState, WasmMoveInput } from '../wasm';
+import type { WasmCharacterState, WasmFacing, WasmMoveInput } from '../wasm';
 
-/** The injected prediction step. Mirrors `wasm.predictInput`; throws on rejection. */
-export type PredictFn = (
+/** The injected drain step. Mirrors `wasm.applyMove`; never throws (a blocked move is a no-op). */
+export type ApplyMoveFn = (
   state: WasmCharacterState,
   input: WasmMoveInput,
   now: number,
 ) => WasmCharacterState;
 
-interface PendingInput {
+type QueueOp =
+  | { kind: 'enqueue'; input: WasmMoveInput }
+  | { kind: 'setMove'; input: WasmMoveInput }
+  | { kind: 'clear' };
+
+interface PendingOp {
   seq: bigint;
-  input: WasmMoveInput;
-  /** Local input instant (ms) — also the predicted move_started_at for this step. */
-  at: number;
+  op: QueueOp;
+}
+
+function applyOp(queue: WasmMoveInput[], op: QueueOp): WasmMoveInput[] {
+  switch (op.kind) {
+    case 'enqueue':
+      return [...queue, op.input];
+    case 'setMove':
+      return [op.input];
+    case 'clear':
+      return [];
+  }
 }
 
 export class Predictor {
-  #predict: PredictFn;
+  #applyMove: ApplyMoveFn;
+  #stepMs: number;
   #predicted: WasmCharacterState;
-  #pending: PendingInput[] = [];
+  #queue: WasmMoveInput[] = [];
+  #pending: PendingOp[] = [];
   #nextSeq = 1n;
 
-  constructor(predict: PredictFn, initial: WasmCharacterState) {
-    this.#predict = predict;
+  constructor(applyMove: ApplyMoveFn, stepMs: number, initial: WasmCharacterState) {
+    this.#applyMove = applyMove;
+    this.#stepMs = stepMs;
     this.#predicted = initial;
   }
 
-  /** The current predicted state (what the renderer should show for the own character). */
   get predicted(): WasmCharacterState {
     return this.#predicted;
   }
 
-  /** The seq that will be assigned to the next applied input. */
-  get nextSeq(): bigint {
-    return this.#nextSeq;
+  /** Moves predicted-but-not-yet-drained locally. */
+  get queueDepth(): number {
+    return this.#queue.length;
   }
 
-  /** Number of inputs awaiting an ack. */
+  /** Queue operations sent but not yet acked by the server. */
   get pendingCount(): number {
     return this.#pending.length;
   }
 
-  /**
-   * Reset the predicted baseline (e.g. when the local player's character first appears, or
-   * on a hard re-sync). Clears pending inputs and the seq counter is left as-is.
-   */
-  reset(state: WasmCharacterState): void {
-    this.#predicted = state;
-    this.#pending = [];
+  get nextSeq(): bigint {
+    return this.#nextSeq;
   }
 
-  /**
-   * Apply one input locally and record it as pending. Returns the assigned seq, or null if
-   * the input was rejected by the rule (e.g. cooldown) — in which case nothing is recorded
-   * and the caller should NOT submit it to the server.
-   *
-   * `at` is the local input instant in ms (used as move_started_at for prediction and for
-   * the own-character interpolation clock).
-   */
-  applyInput(input: WasmMoveInput, at: number): bigint | null {
-    let next: WasmCharacterState;
-    try {
-      next = this.#predict(this.#predicted, input, at);
-    } catch {
-      // Rejected locally (e.g. TooSoon). Do not record or submit.
-      return null;
-    }
+  /** The facing of the last queued `Step`, or null if the queue is empty or ends in a `Jump`. */
+  lastQueuedDir(): WasmFacing | null {
+    const last = this.#queue.at(-1);
+    return last && last !== 'Jump' ? last.Step : null;
+  }
+
+  #record(op: QueueOp): bigint {
     const seq = this.#nextSeq;
     this.#nextSeq += 1n;
-    this.#predicted = next;
-    this.#pending.push({ seq, input, at });
+    this.#queue = applyOp(this.#queue, op);
+    this.#pending.push({ seq, op });
     return seq;
   }
 
-  /**
-   * Reconcile against an authoritative own-character update carrying `ackedSeq`
-   * (= player.lastInputSeq). Drops acked inputs, resets predicted to the authoritative
-   * tile/facing/action, and replays the remaining pending inputs through the rule.
-   *
-   * Replay naturally drops any input the server rejected (its seq was never acked but it
-   * also no longer matches authoritative state, so it either re-applies cleanly or throws
-   * and is discarded) — the character snaps back to truth on a genuine misprediction.
-   */
-  reconcile(authoritative: WasmCharacterState, ackedSeq: bigint): void {
-    // Drop everything the server has acknowledged.
-    this.#pending = this.#pending.filter((p) => p.seq > ackedSeq);
+  /** Append a move to the buffer (top up while holding). Returns the seq for the caller to send. */
+  enqueue(input: WasmMoveInput): bigint {
+    return this.#record({ kind: 'enqueue', input });
+  }
 
-    // Rebuild prediction from authoritative truth + the still-pending inputs.
-    let state = authoritative;
-    const survivors: PendingInput[] = [];
-    for (const p of this.#pending) {
-      try {
-        state = this.#predict(state, p.input, p.at);
-        survivors.push(p);
-      } catch {
-        // This pending input is no longer legal against authoritative state — drop it.
-      }
+  /** Replace the whole un-drained buffer with one move (responsive turn / first step from idle). */
+  setMove(input: WasmMoveInput): bigint {
+    return this.#record({ kind: 'setMove', input });
+  }
+
+  /** Clear the un-drained buffer (stop-movement action). */
+  clearQueue(): bigint {
+    return this.#record({ kind: 'clear' });
+  }
+
+  /**
+   * Advance the predicted state by draining any moves whose slide has completed. Each drained move
+   * starts the next slide; consecutive moves chain exactly `STEP_MS` apart (no gap → smooth), but
+   * if we were idle/behind, the next slide starts at `now` rather than in the past.
+   */
+  drain(now: number): void {
+    while (this.#queue.length > 0 && now - this.#predicted.move_started_at >= this.#stepMs) {
+      const input = this.#queue.shift() as WasmMoveInput;
+      const chained = this.#predicted.move_started_at + this.#stepMs;
+      const start = now - chained > this.#stepMs ? now : chained;
+      this.#predicted = this.#applyMove(this.#predicted, input, start);
     }
-    this.#pending = survivors;
-    this.#predicted = state;
+  }
+
+  /**
+   * Reconcile against an authoritative own-character update: drop acked operations, reset predicted
+   * to authoritative truth, rebuild the queue by replaying the still-pending OPS on top of the
+   * authoritative queue, and re-drain to `now`. `authState.move_started_at` must already be rebased
+   * to the local clock.
+   */
+  reconcile(
+    authState: WasmCharacterState,
+    authQueue: WasmMoveInput[],
+    ackedSeq: bigint,
+    now: number,
+  ): void {
+    this.#pending = this.#pending.filter((p) => p.seq > ackedSeq);
+    let queue = [...authQueue];
+    for (const p of this.#pending) queue = applyOp(queue, p.op);
+    this.#queue = queue;
+    this.#predicted = authState;
+    this.drain(now);
   }
 }
