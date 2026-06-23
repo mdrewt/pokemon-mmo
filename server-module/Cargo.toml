@@ -10,4 +10,6 @@ crate-type = ["cdylib"]
 # Enable game-core's `spacetimedb` feature so the shared types (Direction, ActionState,
 # MoveInput) carry their SpacetimeType derives for use as columns / reducer arguments.
 game-core = { path = "../game-core", features = ["spacetimedb"] }
-spacetimedb = { workspace = true }
+# `unstable` enables Row-Level Security (client_visibility_filter / Filter) — experimental in 2.6,
+# used to scope `monster` rows to their owner so hidden genes never reach other clients.
+spacetimedb = { workspace = true, features = ["unstable"] }

@@ -45,6 +45,10 @@ export interface GameSnapshot {
     level: number;
     partySlot: number | null;
   }[];
+  /** Total monster rows this client has RECEIVED (not filtered). RLS scopes this to the owner, so
+   *  it should equal the owned count — a regression guard against the monster table leaking others'
+   *  hidden genes. */
+  visibleMonsterCount: number;
 }
 
 declare global {
@@ -108,6 +112,7 @@ export function installIntrospection(
         level: m.level,
         partySlot: m.partySlot ?? null,
       })),
+      visibleMonsterCount: net.store.monsters.size,
     };
   };
 }

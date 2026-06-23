@@ -18,7 +18,7 @@ use game_core::{
     MOVE_QUEUE_CAP, STEP_MS,
 };
 use spacetimedb::rand::Rng;
-use spacetimedb::{Identity, ReducerContext, ScheduleAt, Table};
+use spacetimedb::{client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, Table};
 use std::time::Duration;
 
 // --- Tuning constants ----------------------------------------------------------------------
@@ -127,6 +127,14 @@ pub struct Monster {
     pub derived: StatBlock,
     pub party_slot: Option<u8>,
 }
+
+/// Row-level security: a client only ever sees its OWN monsters over the subscription. The `monster`
+/// table must be `public` for the SDK, but its rows carry hidden individuality (genes/`potential`,
+/// `derived` stats, `current_hp`) that other players must not read — this scopes visibility to the
+/// owner so that data never goes out on the wire. (RLS is experimental in 2.6.)
+#[client_visibility_filter]
+const MONSTER_VISIBILITY: Filter =
+    Filter::Sql("SELECT * FROM monster WHERE owner_identity = :sender");
 
 /// Drives the movement loop. A row with an interval `scheduled_at` makes the scheduler call
 /// `movement_tick` every `STEP_MS`.

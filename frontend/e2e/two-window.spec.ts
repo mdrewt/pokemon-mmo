@@ -226,6 +226,9 @@ test.describe.serial('two-window integration', () => {
       expect(starter.partySlot).toBe(0);
       expect(starter.level).toBe(1);
       expect(starter.speciesId).toBeGreaterThan(0);
+      // RLS: each client receives ONLY its own monster (would be 2 here without the visibility
+      // filter — the other player's hidden genes must never reach the wire).
+      expect((await snapshot(page)).visibleMonsterCount).toBe(1);
     }
   });
 
