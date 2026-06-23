@@ -1,1 +1,2 @@
- There's a newer version of wasm-pack available, the new version is: 0.15.0, you are using: 0.13.1. To update, navigate to: https://rustwasm.github.io/wasm-pack/in
+=== eslint ===
+[WARN]: There's a newer version of wasm-pack available, the new version is: 0.15.0, you are using: 0.13.1. To update, navigate to: https://rustwasm.github.io/wasm-pack/installer/

@@ -598,6 +598,17 @@ mod tests {
     }
 
     #[test]
+    fn player_swap_is_deterministic() {
+        let state = BattleState::new(
+            BattleSide::new(vec![mon(100, 200), mon(80, 200)]),
+            BattleSide::new(vec![mon(90, 200)]),
+        );
+        let a = resolve_player_swap(&state, 1, &tackle(), &empty_chart(), 9);
+        let b = resolve_player_swap(&state, 1, &tackle(), &empty_chart(), 9);
+        assert_eq!(a, b);
+    }
+
+    #[test]
     fn player_swap_is_noop_when_over() {
         let mut state = BattleState::new(
             BattleSide::new(vec![mon(100, 200), mon(80, 200)]),
