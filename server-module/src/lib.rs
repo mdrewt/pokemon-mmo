@@ -12,8 +12,10 @@
 //! `game_core::Millis`. Syntax is for `spacetimedb` crate 1.12.0 (CLI 2.6): `name =`, `ctx.sender`.
 
 use game_core::{
-    apply_move, npc_decide, poc_map, ActionState, CharacterState, Direction, Millis, MoveInput,
-    NpcParams, TileMap, TilePos, MOVE_QUEUE_CAP, STEP_MS,
+    apply_move, derive_stats, load_species, npc_decide, poc_map, roll_starter, ActionState,
+    Affinity, CharacterState, Direction, Millis, MonsterInstance, MoveInput, NpcParams, Potential,
+    Species as CoreSpecies, SpeciesId, StatBlock, Temperament, TileMap, TilePos, Training,
+    MOVE_QUEUE_CAP, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{Identity, ReducerContext, ScheduleAt, Table};
@@ -29,6 +31,8 @@ const NPC_WANDER_RADIUS: i32 = 4;
 const MAX_NAME_LEN: usize = 24;
 const SPRITE_PLAYER: u32 = 0;
 const SPRITE_NPC: u32 = 1;
+/// Active battle team size (3 active, rest in the box). `party_slot` is `0..PARTY_SIZE`.
+const PARTY_SIZE: u8 = 3;
 
 // --- Tables --------------------------------------------------------------------------------
 
@@ -82,6 +86,46 @@ pub struct Config {
     #[primary_key]
     pub id: u32,
     pub map_id: u32,
+}
+
+/// Species templates, seeded at `init` from the `game-core` RON content registry. Public + read-only
+/// to clients (only the module writes it) so the client reads species data from its subscription
+/// rather than duplicating content in TS. Mirrors `game_core::Species`.
+#[spacetimedb::table(name = species, public)]
+pub struct Species {
+    #[primary_key]
+    pub species_id: u32,
+    pub name: String,
+    pub base: StatBlock,
+    pub primary_affinity: Affinity,
+    pub secondary_affinity: Option<Affinity>,
+    pub sprite_id: u32,
+}
+
+/// An owned, individual monster. Public so the owner's client renders its box/party; only the module
+/// writes it, and every reducer authorizes against `owner_identity == ctx.sender`. `derived` is the
+/// server-computed max stat block (the client reads it; the formula stays single-sourced in
+/// game-core). `party_slot` is `None` in the box or `Some(0..PARTY_SIZE)` in the active team.
+#[spacetimedb::table(name = monster, public)]
+pub struct Monster {
+    #[primary_key]
+    #[auto_inc]
+    pub monster_id: u64,
+    /// Indexed: the hot "this player's monsters" query, and the basis for future scoped subs.
+    #[index(btree)]
+    pub owner_identity: Identity,
+    pub species_id: u32,
+    /// Player-given name; empty = fall back to the species name in the UI.
+    pub nickname: String,
+    pub level: u8,
+    pub xp: u32,
+    pub potential: Potential,
+    pub temperament: Temperament,
+    pub training: Training,
+    pub bond: u16,
+    pub current_hp: u16,
+    pub derived: StatBlock,
+    pub party_slot: Option<u8>,
 }
 
 /// Drives the movement loop. A row with an interval `scheduled_at` makes the scheduler call
@@ -163,6 +207,96 @@ fn spawn_character(ctx: &ReducerContext, sprite_id: u32) -> (u64, TilePos) {
     (row.entity_id, pos)
 }
 
+/// Validate + normalize a display/nick name (shared by `join_game` and `rename_monster`).
+fn validate_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("name must not be empty".to_string());
+    }
+    if name.chars().count() > MAX_NAME_LEN {
+        return Err(format!("name must be at most {MAX_NAME_LEN} characters"));
+    }
+    if name.chars().any(char::is_control) {
+        return Err("name contains invalid characters".to_string());
+    }
+    Ok(name.to_string())
+}
+
+/// Map a stored `species` row to the `game-core` template (so pure rules can consume it).
+fn core_species(row: &Species) -> CoreSpecies {
+    CoreSpecies {
+        id: SpeciesId(row.species_id),
+        name: row.name.clone(),
+        base: row.base,
+        primary_affinity: row.primary_affinity,
+        secondary_affinity: row.secondary_affinity,
+        sprite_id: row.sprite_id,
+    }
+}
+
+/// Build a `monster` row from a freshly-rolled instance, computing its derived stats in game-core.
+fn monster_row(
+    owner: Identity,
+    species: &CoreSpecies,
+    inst: &MonsterInstance,
+    party_slot: Option<u8>,
+) -> Monster {
+    let derived = derive_stats(
+        species,
+        &inst.potential,
+        &inst.training,
+        inst.temperament,
+        inst.level,
+    );
+    Monster {
+        monster_id: 0, // auto_inc
+        owner_identity: owner,
+        species_id: inst.species_id.0,
+        nickname: inst.nickname.clone().unwrap_or_default(),
+        level: inst.level.0,
+        xp: inst.xp.0,
+        potential: inst.potential,
+        temperament: inst.temperament,
+        training: inst.training,
+        bond: inst.bond.0,
+        current_hp: inst.current_hp,
+        derived,
+        party_slot,
+    }
+}
+
+/// Grant a randomly-rolled starter monster to a player — but only on their FIRST join (monsters are
+/// permanent and persist across reconnects, so a returning player keeps the ones they have).
+fn grant_starter(ctx: &ReducerContext, owner: Identity) {
+    if ctx.db.monster().owner_identity().filter(owner).count() > 0 {
+        return;
+    }
+    let species: Vec<Species> = ctx.db.species().iter().collect();
+    let Some(pick) = species.get(ctx.rng().gen_range(0..species.len().max(1))) else {
+        return; // no species content seeded (shouldn't happen; init seeds it)
+    };
+    let core = core_species(pick);
+    let mut next = || ctx.random::<u32>();
+    let inst = roll_starter(&core, &mut next);
+    ctx.db
+        .monster()
+        .insert(monster_row(owner, &core, &inst, Some(0)));
+}
+
+/// Look up a monster owned by the caller, or an error (used by ownership-checked monster reducers).
+fn caller_monster(ctx: &ReducerContext, monster_id: u64) -> Result<Monster, String> {
+    let monster = ctx
+        .db
+        .monster()
+        .monster_id()
+        .find(monster_id)
+        .ok_or("monster not found")?;
+    if monster.owner_identity != ctx.sender {
+        return Err("not your monster".to_string());
+    }
+    Ok(monster)
+}
+
 // --- Reducers ------------------------------------------------------------------------------
 
 /// Module setup: world config, the wandering NPC, and the movement scheduler.
@@ -172,6 +306,21 @@ pub fn init(ctx: &ReducerContext) {
         id: 0,
         map_id: MAP_ID,
     });
+
+    // Seed species content from the game-core RON registry (the table is the runtime cache; reducers
+    // read from it rather than re-parsing). The content integrity test guarantees this is valid, so
+    // a failure here is a broken-build invariant — fail loud.
+    let species = load_species().expect("embedded species content must be valid");
+    for s in species {
+        ctx.db.species().insert(Species {
+            species_id: s.id.0,
+            name: s.name,
+            base: s.base,
+            primary_affinity: s.primary_affinity,
+            secondary_affinity: s.secondary_affinity,
+            sprite_id: s.sprite_id,
+        });
+    }
 
     let (entity_id, pos) = spawn_character(ctx, SPRITE_NPC);
     ctx.db.npc().insert(Npc {
@@ -207,16 +356,7 @@ pub fn client_disconnected(ctx: &ReducerContext) {
 /// Join with a display name: validate, spawn at a random walkable tile, link the identity.
 #[spacetimedb::reducer]
 pub fn join_game(ctx: &ReducerContext, name: String) -> Result<(), String> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err("name must not be empty".to_string());
-    }
-    if name.chars().count() > MAX_NAME_LEN {
-        return Err(format!("name must be at most {MAX_NAME_LEN} characters"));
-    }
-    if name.chars().any(char::is_control) {
-        return Err("name contains invalid characters".to_string());
-    }
+    let name = validate_name(&name)?;
     if ctx.db.player().identity().find(ctx.sender).is_some() {
         return Err("already joined".to_string());
     }
@@ -225,10 +365,13 @@ pub fn join_game(ctx: &ReducerContext, name: String) -> Result<(), String> {
     ctx.db.player().insert(Player {
         identity: ctx.sender, // identity ONLY from the framework, never a client field
         entity_id,
-        name: name.to_string(),
+        name,
         online: true,
         last_input_seq: 0,
     });
+
+    // First-ever join grants a starter monster; returning players keep theirs.
+    grant_starter(ctx, ctx.sender);
     Ok(())
 }
 
@@ -348,5 +491,48 @@ pub fn movement_tick(ctx: &ReducerContext, _schedule: MovementTickSchedule) -> R
             ctx.db.character().entity_id().update(ch);
         }
     }
+    Ok(())
+}
+
+/// Rename one of the caller's monsters. Ownership + name validation enforced server-side.
+#[spacetimedb::reducer]
+pub fn rename_monster(ctx: &ReducerContext, monster_id: u64, name: String) -> Result<(), String> {
+    let mut monster = caller_monster(ctx, monster_id)?;
+    monster.nickname = validate_name(&name)?;
+    ctx.db.monster().monster_id().update(monster);
+    Ok(())
+}
+
+/// Move one of the caller's monsters between the box (`None`) and an active party slot
+/// (`Some(0..PARTY_SIZE)`). Assigning an occupied slot bumps the current occupant to the box, so a
+/// slot never holds two monsters. All within one transaction (atomic).
+#[spacetimedb::reducer]
+pub fn set_party_slot(
+    ctx: &ReducerContext,
+    monster_id: u64,
+    slot: Option<u8>,
+) -> Result<(), String> {
+    let mut monster = caller_monster(ctx, monster_id)?;
+
+    if let Some(s) = slot {
+        if s >= PARTY_SIZE {
+            return Err(format!("party slot must be 0..{PARTY_SIZE}"));
+        }
+        // Vacate the target slot if another of the caller's monsters holds it.
+        let occupants: Vec<Monster> = ctx
+            .db
+            .monster()
+            .owner_identity()
+            .filter(ctx.sender)
+            .filter(|m| m.monster_id != monster_id && m.party_slot == Some(s))
+            .collect();
+        for mut occ in occupants {
+            occ.party_slot = None;
+            ctx.db.monster().monster_id().update(occ);
+        }
+    }
+
+    monster.party_slot = slot;
+    ctx.db.monster().monster_id().update(monster);
     Ok(())
 }

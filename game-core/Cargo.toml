@@ -8,6 +8,7 @@ edition = "2021"
 # it adds NO runtime logic and is enabled only by server-module (never by client-wasm).
 [dependencies]
 serde = { workspace = true }
+ron = { workspace = true }
 spacetimedb = { workspace = true, optional = true }
 
 [features]

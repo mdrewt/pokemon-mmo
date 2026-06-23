@@ -1,0 +1,40 @@
+// Species content (data, not code) — the single source of truth for monster templates.
+// Embedded into the module at build time and parsed by `game_core::load_species`; the server seeds
+// the public `species` table from it at init so clients read species data from their subscription.
+//
+// Format: a list of Species. `base` = StatBlock (hp/attack/defense/special/speed). `primary_affinity`
+// and the optional `secondary_affinity` come from the Affinity enum. Keep ids stable and unique.
+[
+    (
+        id: 1,
+        name: "Sproutling",
+        base: (hp: 45, attack: 49, defense: 49, special: 65, speed: 45),
+        primary_affinity: Nature,
+        secondary_affinity: None,
+        sprite_id: 0,
+    ),
+    (
+        id: 2,
+        name: "Embercub",
+        base: (hp: 39, attack: 52, defense: 43, special: 60, speed: 65),
+        primary_affinity: Fire,
+        secondary_affinity: None,
+        sprite_id: 1,
+    ),
+    (
+        id: 3,
+        name: "Pebblet",
+        base: (hp: 50, attack: 64, defense: 70, special: 30, speed: 28),
+        primary_affinity: Earth,
+        secondary_affinity: None,
+        sprite_id: 2,
+    ),
+    (
+        id: 4,
+        name: "Tideling",
+        base: (hp: 44, attack: 48, defense: 50, special: 57, speed: 56),
+        primary_affinity: Water,
+        secondary_affinity: None,
+        sprite_id: 3,
+    ),
+]
