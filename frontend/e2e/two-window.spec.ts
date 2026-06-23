@@ -268,6 +268,11 @@ test.describe.serial('two-window integration', () => {
 
     const ended = (await snapshot(pageA)).battle!;
     expect(['PlayerWon', 'PlayerLost']).toContain(ended.outcome);
+    // A win records the XP gained (shown on the victory screen); a loss awards none.
+    if (ended.outcome === 'PlayerWon') {
+      expect(ended.lastXpGain).toBeGreaterThan(0);
+      await expect(pageA.locator('#battle-screen')).toContainText('EXP');
+    }
 
     // Dismiss the result → back to overworld (battle row gone).
     await pageA.locator('#battle-screen').getByText('Continue').click();
@@ -277,6 +282,11 @@ test.describe.serial('two-window integration', () => {
     // A win awards XP; level is monotonic (never drops). (level-1 vs level-1 may also be a loss.)
     const endLevel = (await snapshot(pageA)).monsters[0]!.level;
     expect(endLevel).toBeGreaterThanOrEqual(startLevel);
+    // The box detail shows an EXP progress bar.
+    await pageA.locator('#app').click();
+    await pageA.keyboard.press('KeyB');
+    await expect(pageA.locator('#box-screen')).toContainText('EXP');
+    await pageA.keyboard.press('Escape');
   });
 
   test('the NPC wanders', async () => {

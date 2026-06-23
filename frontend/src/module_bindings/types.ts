@@ -39,6 +39,8 @@ export const Battle = __t.object("Battle", {
   enemyLevel: __t.u8(),
   lastPlayerSkillId: __t.u32(),
   lastEnemySkillId: __t.u32(),
+  lastXpGain: __t.u32(),
+  leveledUp: __t.bool(),
 });
 export type Battle = __Infer<typeof Battle>;
 
@@ -144,6 +146,8 @@ export const Monster = __t.object("Monster", {
   nickname: __t.string(),
   level: __t.u8(),
   xp: __t.u32(),
+  xpFloor: __t.u32(),
+  xpNext: __t.u32(),
   get potential() {
     return Potential;
   },

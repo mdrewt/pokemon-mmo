@@ -57,6 +57,8 @@ export interface GameSnapshot {
     playerMaxHp: number;
     enemyHp: number;
     enemyMaxHp: number;
+    lastXpGain: number;
+    leveledUp: boolean;
   } | null;
 }
 
@@ -134,6 +136,8 @@ export function installIntrospection(
           playerMaxHp: p?.maxHp ?? 0,
           enemyHp: e?.currentHp ?? 0,
           enemyMaxHp: e?.maxHp ?? 0,
+          lastXpGain: b.lastXpGain,
+          leveledUp: b.leveledUp,
         };
       })(),
     };

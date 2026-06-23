@@ -75,11 +75,10 @@ export class BattleScreen {
     // Enemy (top, right-aligned) and player (bottom, left-aligned) combatant panels.
     this.#root.append(this.#combatant(enemy, true), this.#log(battle), this.#combatant(player, false));
 
-    const outcome = state.outcome.tag;
-    if (outcome === 'Ongoing') {
+    if (state.outcome.tag === 'Ongoing') {
       this.#root.append(this.#skillMenu(player, enemy));
     } else {
-      this.#root.append(this.#result(outcome));
+      this.#root.append(this.#result(battle));
     }
   }
 
@@ -163,15 +162,28 @@ export class BattleScreen {
     return menu;
   }
 
-  #result(outcome: string): HTMLElement {
+  #result(battle: NonNullable<ReturnType<NetHandle['battle']>>): HTMLElement {
+    const won = battle.state.outcome.tag === 'PlayerWon';
     const box = document.createElement('div');
-    box.style.cssText = 'align-self:center;display:flex;flex-direction:column;gap:10px;align-items:center;margin-top:8px;';
+    box.style.cssText =
+      'align-self:center;display:flex;flex-direction:column;gap:8px;align-items:center;margin-top:8px;';
     const msg = document.createElement('div');
-    msg.textContent = outcome === 'PlayerWon' ? 'Victory!' : 'Defeat…';
-    msg.style.cssText = `font-size:26px;font-weight:700;color:${outcome === 'PlayerWon' ? '#5cbf5c' : '#e2553c'};`;
+    msg.textContent = won ? 'Victory!' : 'Defeat…';
+    msg.style.cssText = `font-size:26px;font-weight:700;color:${won ? '#5cbf5c' : '#e2553c'};`;
+    box.append(msg);
+
+    if (won) {
+      const xp = document.createElement('div');
+      xp.textContent = battle.leveledUp
+        ? `Your party gained ${battle.lastXpGain} EXP — and leveled up!`
+        : `Your party gained ${battle.lastXpGain} EXP.`;
+      xp.style.cssText = 'opacity:0.9;';
+      box.append(xp);
+    }
+
     const cont = this.#button('Continue');
     cont.onclick = () => this.#net.closeBattle();
-    box.append(msg, cont);
+    box.append(cont);
     return box;
   }
 

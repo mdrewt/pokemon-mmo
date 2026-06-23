@@ -12,7 +12,7 @@
 //! `game_core::Millis`. Syntax is for `spacetimedb` crate 1.12.0 (CLI 2.6): `name =`, `ctx.sender`.
 
 use game_core::{
-    apply_move, battle_xp_reward, derive_stats, level_for_xp, load_skills, load_species,
+    apply_move, battle_xp_reward, derive_stats, level_bounds, load_skills, load_species,
     load_type_chart, npc_decide, pick_best_skill, poc_map, resolve_turn, roll_individuality,
     roll_starter, ActionState, Affinity, BattleMonster, BattleOutcome, BattleSide, BattleState,
     Category, CharacterState, Direction, Effectiveness, Level, Millis, MonsterInstance, MoveInput,
@@ -142,6 +142,10 @@ pub struct Battle {
     pub enemy_level: u8,
     pub last_player_skill_id: u32,
     pub last_enemy_skill_id: u32,
+    /// XP the party gained on the most recent win (0 otherwise), and whether any party monster
+    /// leveled up — shown on the victory screen.
+    pub last_xp_gain: u32,
+    pub leveled_up: bool,
 }
 
 /// An owned, individual monster. Public so the owner's client renders its box/party; only the module
@@ -161,6 +165,11 @@ pub struct Monster {
     pub nickname: String,
     pub level: u8,
     pub xp: u32,
+    /// XP at the start of the current level and the total needed to reach the next (server-derived
+    /// from `xp` via game-core, so the client can show a progress bar without the curve). At the
+    /// level cap `xp_next == xp_floor`.
+    pub xp_floor: u32,
+    pub xp_next: u32,
     pub potential: Potential,
     pub temperament: Temperament,
     pub training: Training,
@@ -290,35 +299,50 @@ fn core_species(row: &Species) -> CoreSpecies {
     }
 }
 
-/// Build a `monster` row from an instance, always (re)computing the authoritative `derived` stat
-/// block here in game-core — this is the SSOT for that column, so callers must never trust a stored
-/// `derived`. (The starter path derives once more inside `roll_starter` for `current_hp`; a cheap,
-/// intentional redundancy at join time.)
+/// The level-dependent monster columns derived from an XP total: `(level, xp_floor, xp_next, derived
+/// stats)`. The SSOT for these stored-but-derived fields; recompute whenever `xp` changes so the
+/// client can read level/progress/stats without reimplementing the curve or stat formula.
+fn level_fields(
+    species: &CoreSpecies,
+    xp: u32,
+    potential: &Potential,
+    training: &Training,
+    temperament: Temperament,
+) -> (u8, u32, u32, StatBlock) {
+    let (level, floor, next) = level_bounds(Xp(xp));
+    let derived = derive_stats(species, potential, training, temperament, level);
+    (level.0, floor.0, next.0, derived)
+}
+
+/// Build a `monster` row from an instance, (re)computing the authoritative level/progress/`derived`
+/// columns from its XP — callers must never trust those from the client. Starts at full HP.
 fn monster_row(
     owner: Identity,
     species: &CoreSpecies,
     inst: &MonsterInstance,
     party_slot: Option<u8>,
 ) -> Monster {
-    let derived = derive_stats(
+    let (level, xp_floor, xp_next, derived) = level_fields(
         species,
+        inst.xp.0,
         &inst.potential,
         &inst.training,
         inst.temperament,
-        inst.level,
     );
     Monster {
         monster_id: 0, // auto_inc
         owner_identity: owner,
         species_id: inst.species_id.0,
         nickname: inst.nickname.clone().unwrap_or_default(),
-        level: inst.level.0,
+        level,
         xp: inst.xp.0,
+        xp_floor,
+        xp_next,
         potential: inst.potential,
         temperament: inst.temperament,
         training: inst.training,
         bond: inst.bond.0,
-        current_hp: inst.current_hp,
+        current_hp: derived.hp,
         derived,
         party_slot,
     }
@@ -430,9 +454,9 @@ fn roll_wild(ctx: &ReducerContext, species: &Species, level: u8) -> BattleMonste
     )
 }
 
-/// Award XP to each of the caller's party monsters on a win: bump xp, recompute level + derived
-/// stats via game-core, and restore HP (M7 keeps monsters at full HP outside battle).
-fn award_battle_xp(ctx: &ReducerContext, owner: Identity, reward: u32) {
+/// Award XP to each of the caller's party monsters on a win: bump xp, recompute level/progress/
+/// derived stats via game-core, restore HP. Returns whether any party monster leveled up.
+fn award_battle_xp(ctx: &ReducerContext, owner: Identity, reward: u32) -> bool {
     let party: Vec<Monster> = ctx
         .db
         .monster()
@@ -440,22 +464,28 @@ fn award_battle_xp(ctx: &ReducerContext, owner: Identity, reward: u32) {
         .filter(owner)
         .filter(|m| m.party_slot.is_some())
         .collect();
+    let mut any_leveled = false;
     for mut m in party {
+        let before = m.level;
         m.xp = m.xp.saturating_add(reward);
-        m.level = level_for_xp(Xp(m.xp)).0;
         if let Some(sp) = ctx.db.species().species_id().find(m.species_id) {
-            let derived = derive_stats(
+            let (level, xp_floor, xp_next, derived) = level_fields(
                 &core_species(&sp),
+                m.xp,
                 &m.potential,
                 &m.training,
                 m.temperament,
-                Level(m.level),
             );
+            m.level = level;
+            m.xp_floor = xp_floor;
+            m.xp_next = xp_next;
             m.current_hp = derived.hp;
             m.derived = derived;
         }
+        any_leveled |= m.level > before;
         ctx.db.monster().monster_id().update(m);
     }
+    any_leveled
 }
 
 /// One variance roll in `0..=MAX_VARIANCE_ROLL`.
@@ -774,6 +804,8 @@ pub fn start_battle(ctx: &ReducerContext) -> Result<(), String> {
         enemy_level: lead_level,
         last_player_skill_id: 0,
         last_enemy_skill_id: 0,
+        last_xp_gain: 0,
+        leveled_up: false,
     });
     Ok(())
 }
@@ -853,11 +885,15 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
     battle.state = new_state;
     battle.last_player_skill_id = skill_id;
     battle.last_enemy_skill_id = enemy_skill.id.0;
-    ctx.db.battle().player_identity().update(battle);
 
+    // On a win, award XP to the party (mutating monster rows) and record the gain + level-up flag on
+    // the battle row so the victory screen can show "Gained N XP!".
     if won {
-        award_battle_xp(ctx, ctx.sender, battle_xp_reward(enemy_level));
+        let gain = battle_xp_reward(enemy_level);
+        battle.last_xp_gain = gain;
+        battle.leveled_up = award_battle_xp(ctx, ctx.sender, gain);
     }
+    ctx.db.battle().player_identity().update(battle);
     Ok(())
 }
 

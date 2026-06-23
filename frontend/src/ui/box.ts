@@ -196,6 +196,7 @@ export class BoxScreen {
         ['Bond', String(m.bond)],
         ['HP', `${m.currentHp} / ${d.hp}`],
       ]),
+      this.#xpProgress(m),
     );
 
     // Combat stats as bold label + proportional bar (absolute strength vs STAT_BAR_MAX, so the bar
@@ -264,6 +265,33 @@ export class BoxScreen {
       grid.append(l, v);
     }
     return grid;
+  }
+
+  /** An EXP progress bar showing how far the monster is toward its next level. */
+  #xpProgress(m: Monster): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;margin-top:6px;';
+    const atMax = m.xpNext <= m.xpFloor;
+    const span = Math.max(1, m.xpNext - m.xpFloor);
+    const pct = atMax ? 100 : Math.min(100, Math.round(((m.xp - m.xpFloor) / span) * 100));
+
+    const top = document.createElement('div');
+    top.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;';
+    const label = document.createElement('span');
+    label.textContent = 'EXP';
+    label.style.cssText = LABEL_STYLE;
+    const val = document.createElement('span');
+    val.style.cssText = 'font-size:11px;opacity:0.8;font-variant-numeric:tabular-nums;';
+    val.textContent = atMax ? 'MAX' : `${m.xpNext - m.xp} to next level`;
+    top.append(label, val);
+
+    const track = document.createElement('div');
+    track.style.cssText = 'height:8px;border-radius:4px;background:#222a38;overflow:hidden;';
+    const fill = document.createElement('div');
+    fill.style.cssText = `height:100%;width:${pct}%;background:#c7b34a;border-radius:4px;`;
+    track.append(fill);
+    wrap.append(top, track);
+    return wrap;
   }
 
   /** One combat stat as a bold label + proportional bar + right-aligned tabular value. */

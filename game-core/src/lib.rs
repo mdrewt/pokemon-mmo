@@ -25,9 +25,9 @@ pub use combat::{
 };
 pub use content::{load_skills, load_species, load_type_chart, validate_content};
 pub use monster::{
-    derive_stats, level_for_xp, roll_individuality, roll_starter, xp_for_level, Affinity, Bond,
-    Level, MonsterInstance, Potential, Species, SpeciesId, Stat, StatBlock, Temperament, Training,
-    Xp,
+    derive_stats, level_bounds, level_for_xp, roll_individuality, roll_starter, xp_for_level,
+    Affinity, Bond, Level, MonsterInstance, Potential, Species, SpeciesId, Stat, StatBlock,
+    Temperament, Training, Xp,
 };
 pub use types::{ActionState, CharacterState, Direction, Millis, MoveInput, TilePos};
 pub use world::map::{poc_map, TileMap};

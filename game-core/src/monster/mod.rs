@@ -5,7 +5,9 @@
 mod derive;
 mod model;
 
-pub use derive::{derive_stats, level_for_xp, roll_individuality, roll_starter, xp_for_level};
+pub use derive::{
+    derive_stats, level_bounds, level_for_xp, roll_individuality, roll_starter, xp_for_level,
+};
 pub use model::{
     Affinity, Bond, Level, MonsterInstance, Potential, Species, SpeciesId, Stat, StatBlock,
     Temperament, Training, Xp,

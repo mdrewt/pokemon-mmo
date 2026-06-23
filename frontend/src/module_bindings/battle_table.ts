@@ -22,4 +22,6 @@ export default __t.row({
   enemyLevel: __t.u8().name("enemy_level"),
   lastPlayerSkillId: __t.u32().name("last_player_skill_id"),
   lastEnemySkillId: __t.u32().name("last_enemy_skill_id"),
+  lastXpGain: __t.u32().name("last_xp_gain"),
+  leveledUp: __t.bool().name("leveled_up"),
 });

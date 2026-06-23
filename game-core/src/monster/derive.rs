@@ -67,6 +67,20 @@ pub fn level_for_xp(xp: Xp) -> Level {
     Level(level)
 }
 
+/// For a given XP total: its `(level, xp at the start of that level, xp total needed for the next
+/// level)`. At the level cap `next == floor` (no further level). Lets the UI show a progress bar +
+/// "N to next level" without the client reimplementing the curve.
+pub fn level_bounds(xp: Xp) -> (Level, Xp, Xp) {
+    let level = level_for_xp(xp);
+    let floor = xp_for_level(level);
+    let next = if level.0 >= Level::MAX {
+        floor
+    } else {
+        xp_for_level(Level(level.0 + 1))
+    };
+    (level, floor, next)
+}
+
 /// Roll a fresh starter/wild individual of `species`. `next_u32` supplies randomness (the server
 /// wraps `ctx.rng()`); it is consumed in a fixed order — the five potential genes (hp, attack,
 /// defense, special, speed) then the temperament — so the result is deterministic for a given
@@ -244,6 +258,20 @@ mod tests {
         assert_eq!(level_for_xp(Xp(xp_for_level(Level(50)).0 - 1)).0, 49);
         // overshooting the curve clamps to MAX.
         assert_eq!(level_for_xp(Xp(u32::MAX)).0, Level::MAX);
+    }
+
+    #[test]
+    fn level_bounds_reports_progress_window() {
+        // Mid-level: floor = this level's xp, next = the following level's xp.
+        let (level, floor, next) = level_bounds(Xp(xp_for_level(Level(10)).0 + 5));
+        assert_eq!(level.0, 10);
+        assert_eq!(floor.0, xp_for_level(Level(10)).0);
+        assert_eq!(next.0, xp_for_level(Level(11)).0);
+        assert!(next.0 > floor.0);
+        // At the cap, next == floor (no further level — UI shows "MAX").
+        let (max_level, max_floor, max_next) = level_bounds(Xp(u32::MAX));
+        assert_eq!(max_level.0, Level::MAX);
+        assert_eq!(max_next.0, max_floor.0);
     }
 
     #[test]

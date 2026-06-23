@@ -231,10 +231,12 @@ pub fn pick_best_skill(
     tied[roll as usize % tied.len()]
 }
 
-/// XP awarded to the victor for defeating a monster of `defeated_level` (level², min 1).
+/// XP awarded to the victor for defeating a monster of `defeated_level`. Tuned against the `level³`
+/// curve so early wins clearly advance a level (the level-(L+1) gap is `3L²+3L+1`): `L²+L+2` gives
+/// ~2 wins/level early, tapering to ~3 later. A tuning knob, not a deep rule.
 pub fn battle_xp_reward(defeated_level: u8) -> u32 {
     let l = defeated_level as u32;
-    (l * l).max(1)
+    l * l + l + 2
 }
 
 #[cfg(test)]
