@@ -378,8 +378,14 @@ test.describe.serial('two-window integration', () => {
 
     expect(recruited).toBe(true);
     // The recruited wild is now an owned monster (in the box), and bait was consumed along the way.
-    expect((await snapshot(pageA)).monsters.length).toBe(startCount + 1);
-    expect((await snapshot(pageA)).baitCount).toBeLessThan(5);
+    const afterCatch = await snapshot(pageA);
+    expect(afterCatch.monsters.length).toBe(startCount + 1);
+    expect(afterCatch.baitCount).toBeLessThan(5);
+    // The catch joins the box (not the party) at FULL HP — locks the recruit→monster_row contract.
+    const boxMon = afterCatch.monsters.find((m) => m.partySlot === null);
+    expect(boxMon).toBeTruthy();
+    expect(boxMon!.currentHp).toBe(boxMon!.maxHp);
+    expect(boxMon!.currentHp).toBeGreaterThan(0);
   });
 
   test('the NPC wanders', async () => {
