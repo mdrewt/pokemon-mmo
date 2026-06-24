@@ -56,9 +56,10 @@ In the spirit of practicing what we preach: this tutorial is a separate Vite mul
 (`tutorial.html`) rendering Markdown with `marked` + `highlight.js`. We rejected putting it *inside* the
 Pixi canvas (rendering long-form text in WebGL would be reinventing a browser) and rejected hand-written
 HTML (Markdown-as-data is far easier to keep accurate). The cost is three small dependencies and a
-second build entry — and we trimmed highlight.js from its ~190-language full build down to the eight
-grammars these chapters actually use, because measuring the bundle showed the full build dominating the
-route's payload. Small decisions, same reasoning as everywhere else.
+second build entry — and we trimmed highlight.js from its ~190-language full build down to just the
+handful of grammars these chapters actually need, because measuring the bundle showed the full build
+dominating the route's payload (it dropped from ~1 MB to ~250 kB). Small decisions, same reasoning as
+everywhere else.
 
 ## Where to go from here
 

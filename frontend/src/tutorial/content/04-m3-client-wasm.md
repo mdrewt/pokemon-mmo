@@ -100,10 +100,25 @@ fetch the `.wasm` yourself.
 
 ## Async initialization
 
-WASM modules load asynchronously — the browser has to fetch and compile the `.wasm` before any export
-is callable. So the very first thing the frontend does is `await` the WASM init, and the game loop is
-**gated** on it being ready. You saw the gate in the main loop already: `if (!isWasmReady()) return;`.
-Calling an export before init would throw. We'll wire this up properly in the next chapter; for now,
+The crate has one more export — a startup hook that runs once when the module loads:
+
+```rust
+#[wasm_bindgen(start)]
+pub fn main() {
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+}
+```
+
+`#[wasm_bindgen(start)]` marks the function that runs automatically on init. Here it just installs a
+panic hook so that if any Rust code *did* panic across the boundary, you'd get a readable error in the
+browser console instead of a cryptic `unreachable`. (It does no game work — the logic still lives in
+`game-core`.)
+
+The reason this matters: WASM modules load **asynchronously** — the browser has to fetch and compile
+the `.wasm` before any export is callable. So the very first thing the frontend does is `await` the
+WASM init, and the game loop is **gated** on it being ready. You'll see that gate in the next chapter's
+main loop: `if (!isWasmReady()) return;`. Calling an export before init resolves would throw. For now,
 internalize the rule: **WASM is async; await it before you predict.**
 
 ## Common pitfalls

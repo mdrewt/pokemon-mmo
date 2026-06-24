@@ -128,7 +128,9 @@ if let Some((ps, es)) = record_pick(ctx, &battle, skill_id)? {
 
 So a PvP `submit_action` either records your pick and waits (returns having inserted one row), or — if
 your opponent already picked — resolves the whole turn. Same symmetric `resolve_turn`, no AI, no
-peeking.
+peeking. (The very same `record_pick` "wait for both, then resolve" mechanism also drives **co-op raid**
+turns — both allies choose secretly before the boss acts — which is why the helper isn't named
+anything PvP-specific.)
 
 > **Why not a unique DB constraint to prevent double-submits**, instead of the in-code `record_pick`
 > check? Because SpacetimeDB *serializes conflicting reducer transactions* — two `submit_action` calls
@@ -151,11 +153,11 @@ pub fn elo_update(winner: i32, loser: i32) -> (i32, i32) {
 }
 ```
 
-It's zero-sum (the winner gains exactly what the loser drops), an upset swings more than a favorite's
-win, and a win is always worth at least 1 point. Ratings live in a **persistent `profile` table keyed
-by identity** that — unlike the ephemeral `player` presence row — *survives disconnects*, so your
-ladder rating is durable. `apply_pvp_rating` is called at exactly one place: the terminal transition
-(resolve, forfeit, or disconnect).
+Everyone starts at `STARTING_RATING` (1000). It's zero-sum (the winner gains exactly what the loser
+drops), an upset swings more than a favorite's win, and a win is always worth at least 1 point. Ratings
+live in a **persistent `profile` table keyed by identity** that — unlike the ephemeral `player`
+presence row — *survives disconnects*, so your ladder rating is durable. `apply_pvp_rating` is called at
+exactly one place: the terminal transition (resolve, forfeit, or disconnect).
 
 ## Disconnects and forfeits
 

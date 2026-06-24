@@ -66,8 +66,9 @@ fn maybe_trigger_encounter(ctx: &ReducerContext, entity_id: u64) {
 - It uses the **indexed** `player.entity_id` lookup to map the moved character back to its owning
   player without scanning — and skips NPCs (they have no `player` row).
 - It **rolls the cheap probability first** (`encounter_triggers`, a pure `game-core` function fed
-  `ctx.random()`), and only on a hit does it read the encounter table and build a battle. Cheap-check-
-  first is a small efficiency habit worth having.
+  `ctx.random()`) — a flat `ENCOUNTER_CHANCE_PERMILLE` of 120, i.e. ~12% per grass step — and only on a
+  hit does it read the encounter table and build a battle. Cheap-check-first is a small efficiency habit
+  worth having.
 - `begin_encounter` rolls a species+level from the zone table, rolls the wild's individuality, and
   inserts a `battle` row. The same function backs a manual `start_battle` reducer, so the "press F to
   fight" path and the grass-step path share one implementation.
@@ -137,6 +138,11 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
     Ok(())
 }
 ```
+
+> One naming note so the snippet reads cleanly: the success check calls `recruit_succeeds(...)`, which
+> is the pure `game-core::attempt_recruit` function imported `as recruit_succeeds` — renamed only
+> because the *reducer* is also called `attempt_recruit` and they can't share a name in the same file.
+> The rule and the reducer are still distinct: one decides, one orchestrates.
 
 ### How it works, and one lovely detail
 
