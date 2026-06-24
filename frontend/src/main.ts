@@ -11,6 +11,7 @@ import { Predictor } from './prediction/predictor';
 import { Scene } from './render/scene';
 import { InputController } from './input/input';
 import { showNameEntry } from './ui/nameEntry';
+import { toast } from './ui/toast';
 import { DebugHud } from './ui/hud';
 import { ScreenManager } from './ui/screen';
 import { BoxScreen } from './ui/box';
@@ -40,8 +41,10 @@ async function bootstrap(): Promise<void> {
   if (container == null) throw new Error('#app element not found');
   container.appendChild(app.canvas);
 
-  // Step 3: connect + subscribe. Resolves once the initial subscription is applied.
-  const net: NetHandle = await connect();
+  // Step 3: connect + subscribe. Resolves once the initial subscription is applied. A rejected
+  // reducer (e.g. "you have no bait", "can't evolve yet") surfaces as a toast instead of silently
+  // doing nothing.
+  const net: NetHandle = await connect((message) => toast(message));
 
   // Step 4: name entry -> join.
   const name = await showNameEntry();

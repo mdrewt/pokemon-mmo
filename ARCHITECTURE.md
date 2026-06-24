@@ -368,6 +368,34 @@ Owner-scoped data (monster hidden genes, an active battle, item counts) is kept 
 wire via **Row-Level Security `client_visibility_filter`s** on the `monster`/`battle`/`player_item`
 tables, not just `public` — see the Security invariants.
 
+## Recurring pitfalls & their mechanical guards
+
+A pre-M11 hardening review found that the bugs that recur here all share one shape: **a contract left
+to discipline instead of a mechanism.** Each is now closed by a single seam/helper/test so the whole
+*class* can't regress (mechanical-enforcement-over-discipline), and is recorded here so new code follows
+the pattern:
+
+- **Discrete actions surface their rejection.** Reducer calls return a `Promise` that rejects with the
+  server's `Err` string; a fire-and-forget `void conn.reducers.X()` silently swallows it, so a rejected
+  action (no bait, on cooldown, can't evolve yet) does nothing with no feedback. **Guard:** action
+  reducers route through the `call(p)` seam in `net/connection.ts`, which `.catch`es and forwards the
+  message to a toast (`connect`'s `onActionError` is *required*, so it can't be forgotten). The
+  exception is the high-frequency **movement** reducers — their rejections (queue-full, stale-seq) are
+  normal flow-control that prediction/reconciliation already absorbs, so they stay silent by design.
+- **Content tables are keyed Maps, not arrays.** A re-subscribe re-delivers every row as an insert, so a
+  plain-array store collection duplicates on reconnect. **Guard:** every content collection in
+  `net/store.ts` is a `Map` keyed by the row's id (idempotent `upsert`); `store.test.ts` asserts this.
+- **One item stack per player; spend deletes empties.** `player_item` has an `auto_inc` id, so naive
+  inserts create multiple stacks and zero-quantity rows linger. **Guard:** grant via `grant_item` (merges
+  into the existing stack) and spend via `consume_one` (deletes at zero) — the only two item-mutation
+  helpers.
+- **Classify by data, not magic ids.** A hard-coded item id on one side and a data-driven predicate on
+  the other drift apart. **Guard:** "bait" is *any* item with `recruit_bonus > 0` on both client and
+  server; prefer a content-derived set over a literal id.
+- **Probabilistic e2e flows must be bounded *and* robust.** Tests of random mechanics (recruit, encounter)
+  loop with a cap; make the inner action reliable (e.g. field the tankiest monster to survive longer)
+  rather than just raising the cap.
+
 ## Scaling path
 
 Built since (no longer "scaling path"): monsters/battle/taming as `game-core` rules + tables, and

@@ -78,14 +78,29 @@ function nowMs(): number {
 /**
  * Connect to SpacetimeDB, subscribe to the world tables, and resolve once the connection is
  * established (onConnect). Table rows stream into `store` via change callbacks.
+ *
+ * `onActionError` is invoked with the server's rejection message whenever a discrete-ACTION reducer
+ * this client made FAILS (the reducer returned `Err`). Those wrappers route through the `call` seam so
+ * a rejected action surfaces to the player instead of silently doing nothing; the high-frequency
+ * MOVEMENT reducers deliberately bypass it (their rejections are normal flow-control). Required (not
+ * defaulted) so a caller can't silently re-introduce swallowed errors. The net layer stays UI-free —
+ * `main` wires this to a toast.
  */
-export function connect(): Promise<NetHandle> {
+export function connect(onActionError: (message: string) => void): Promise<NetHandle> {
   const uri = import.meta.env.VITE_SPACETIME_URI ?? DEFAULT_URI;
   const moduleName = import.meta.env.VITE_MODULE_NAME ?? DEFAULT_MODULE;
 
   const store = new AuthoritativeStore();
   let identity: Identity | undefined;
   let status: ConnectionStatus = 'connecting';
+
+  // A reducer call returns a Promise that REJECTS (with the server's Err string) on failure; route
+  // every call through this so the rejection is surfaced rather than discarded by `void`.
+  const call = (p: Promise<void>): void => {
+    void p.catch((e: unknown) => {
+      onActionError(e instanceof Error ? e.message : 'That action could not be completed.');
+    });
+  };
 
   return new Promise<NetHandle>((resolve, reject) => {
     let settled = false;
@@ -287,8 +302,11 @@ export function connect(): Promise<NetHandle> {
         return out;
       },
       joinGame: (name: string) => {
-        void conn.reducers.joinGame({ name });
+        call(conn.reducers.joinGame({ name }));
       },
+      // Movement reducers are deliberately NOT routed through `call`: their rejections ("move queue
+      // full" anti-flood, "stale input seq") are normal flow-control that prediction/reconciliation
+      // already handles — surfacing them as error toasts would spam the player during normal play.
       enqueueMove: (input: MoveInput, seq: bigint) => {
         void conn.reducers.enqueueMove({ input, seq });
       },
@@ -299,40 +317,40 @@ export function connect(): Promise<NetHandle> {
         void conn.reducers.clearQueue({ seq });
       },
       renameMonster: (monsterId: bigint, name: string) => {
-        void conn.reducers.renameMonster({ monsterId, name });
+        call(conn.reducers.renameMonster({ monsterId, name }));
       },
       setPartySlot: (monsterId: bigint, slot: number | undefined) => {
-        void conn.reducers.setPartySlot({ monsterId, slot });
+        call(conn.reducers.setPartySlot({ monsterId, slot }));
       },
       trainMonster: (monsterId: bigint, itemId: number) => {
-        void conn.reducers.trainMonster({ monsterId, itemId });
+        call(conn.reducers.trainMonster({ monsterId, itemId }));
       },
       careForMonster: (monsterId: bigint) => {
-        void conn.reducers.careForMonster({ monsterId });
+        call(conn.reducers.careForMonster({ monsterId }));
       },
       evolveMonster: (monsterId: bigint, toSpeciesId: number) => {
-        void conn.reducers.evolveMonster({ monsterId, toSpeciesId });
+        call(conn.reducers.evolveMonster({ monsterId, toSpeciesId }));
       },
       fuseMonsters: (monsterA: bigint, monsterB: bigint) => {
-        void conn.reducers.fuseMonsters({ monsterA, monsterB });
+        call(conn.reducers.fuseMonsters({ monsterA, monsterB }));
       },
       startBattle: () => {
-        void conn.reducers.startBattle({});
+        call(conn.reducers.startBattle({}));
       },
       submitAction: (skillId: number) => {
-        void conn.reducers.submitAction({ skillId });
+        call(conn.reducers.submitAction({ skillId }));
       },
       swapActive: (teamIndex: number) => {
-        void conn.reducers.swapActive({ teamIndex });
+        call(conn.reducers.swapActive({ teamIndex }));
       },
       attemptRecruit: (useBait: boolean) => {
-        void conn.reducers.attemptRecruit({ useBait });
+        call(conn.reducers.attemptRecruit({ useBait }));
       },
       closeBattle: () => {
-        void conn.reducers.closeBattle({});
+        call(conn.reducers.closeBattle({}));
       },
       healParty: () => {
-        void conn.reducers.healParty({});
+        call(conn.reducers.healParty({}));
       },
       disconnect: () => conn.disconnect(),
     };

@@ -41,8 +41,7 @@ const SPRITE_NPC: u32 = 1;
 const PARTY_SIZE: u8 = 3;
 /// The single POC encounter zone (the tall-grass table). Multi-zone is a later, multi-map concern.
 const ENCOUNTER_ZONE: u32 = 0;
-/// The bait item id (mirrors `items.ron`) and how many a player is granted on first join.
-const BAIT_ITEM_ID: u32 = 1;
+/// How many of each bait item a player is granted on first join (bait = any item with a recruit bonus).
 const STARTER_BAIT_QTY: u32 = 5;
 /// How many of each training food a player is granted on first join (enough to feel the divergence).
 const STARTER_FOOD_QTY: u32 = 3;
@@ -485,32 +484,49 @@ fn grant_starter(ctx: &ReducerContext, owner: Identity) {
         .insert(monster_row(owner, &core, &inst, Some(0)));
 }
 
-/// Grant a player their first-join items, once (returning players keep what they have): recruit bait
-/// plus a few of each training food so the raising loop is immediately playable.
-fn grant_starter_items(ctx: &ReducerContext, owner: Identity) {
-    if ctx.db.player_item().owner_identity().filter(owner).count() > 0 {
-        return;
+/// Grant `qty` of `item_id` to `owner`, merging into the existing stack if there is one so a player
+/// holds at most ONE `player_item` row per item (the single-stack invariant the spend logic relies on).
+fn grant_item(ctx: &ReducerContext, owner: Identity, item_id: u32, qty: u32) {
+    if let Some(mut stack) = ctx
+        .db
+        .player_item()
+        .owner_identity()
+        .filter(owner)
+        .find(|pi| pi.item_id == item_id)
+    {
+        stack.quantity += qty;
+        ctx.db.player_item().id().update(stack);
+    } else {
+        ctx.db.player_item().insert(PlayerItem {
+            id: 0, // auto_inc
+            owner_identity: owner,
+            item_id,
+            quantity: qty,
+        });
     }
-    ctx.db.player_item().insert(PlayerItem {
-        id: 0, // auto_inc
-        owner_identity: owner,
-        item_id: BAIT_ITEM_ID,
-        quantity: STARTER_BAIT_QTY,
-    });
-    let foods: Vec<u32> = ctx
+}
+
+/// Grant a player their first-join items: some of each item, derived from content — bait (anything
+/// with a recruit bonus) and training food. No magic ids. The caller decides first-join (see
+/// `join_game`); this does NOT self-guard on item rows, which are not a reliable first-join signal
+/// (a player can spend every item to zero).
+fn grant_starter_items(ctx: &ReducerContext, owner: Identity) {
+    let starter: Vec<(u32, u32)> = ctx
         .db
         .item()
         .iter()
-        .filter(|i| i.train_stat.is_some())
-        .map(|i| i.item_id)
+        .filter_map(|it| {
+            if it.recruit_bonus > 0 {
+                Some((it.item_id, STARTER_BAIT_QTY))
+            } else if it.train_stat.is_some() {
+                Some((it.item_id, STARTER_FOOD_QTY))
+            } else {
+                None
+            }
+        })
         .collect();
-    for item_id in foods {
-        ctx.db.player_item().insert(PlayerItem {
-            id: 0,
-            owner_identity: owner,
-            item_id,
-            quantity: STARTER_FOOD_QTY,
-        });
+    for (item_id, qty) in starter {
+        grant_item(ctx, owner, item_id, qty);
     }
 }
 
@@ -540,10 +556,14 @@ fn reject_if_in_battle(ctx: &ReducerContext) -> Result<(), String> {
 }
 
 /// Spend one of an item stack (the caller already validated ownership + `quantity > 0`). The single
-/// place item consumption happens, so a future change (e.g. deleting empty stacks) lives here.
+/// place item consumption happens: the stack is deleted when it hits zero so empty rows don't linger.
 fn consume_one(ctx: &ReducerContext, mut stack: PlayerItem) {
     stack.quantity -= 1;
-    ctx.db.player_item().id().update(stack);
+    if stack.quantity == 0 {
+        ctx.db.player_item().id().delete(stack.id);
+    } else {
+        ctx.db.player_item().id().update(stack);
+    }
 }
 
 /// Reconstruct the in-memory `MonsterInstance` from a stored row — the inverse of `monster_row` for
@@ -975,6 +995,11 @@ pub fn join_game(ctx: &ReducerContext, name: String) -> Result<(), String> {
         return Err("already joined".to_string());
     }
 
+    // True first join, decided by the PERMANENT monster set (items can be spent to zero, so item rows
+    // are not a reliable first-join signal — gating items on them would re-grant after a player used
+    // everything and reconnected). Monsters are never deleted from a player, so this is stable.
+    let first_join = ctx.db.monster().owner_identity().filter(ctx.sender).count() == 0;
+
     let (entity_id, _pos) = spawn_character(ctx, SPRITE_PLAYER);
     ctx.db.player().insert(Player {
         identity: ctx.sender, // identity ONLY from the framework, never a client field
@@ -984,9 +1009,11 @@ pub fn join_game(ctx: &ReducerContext, name: String) -> Result<(), String> {
         last_input_seq: 0,
     });
 
-    // First-ever join grants a starter monster + some bait; returning players keep what they have.
-    grant_starter(ctx, ctx.sender);
-    grant_starter_items(ctx, ctx.sender);
+    // First-ever join grants a starter monster + starter items; returning players keep what they have.
+    if first_join {
+        grant_starter(ctx, ctx.sender);
+        grant_starter_items(ctx, ctx.sender);
+    }
     Ok(())
 }
 
@@ -1460,7 +1487,9 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
         .find(enemy.species_id)
         .ok_or("enemy species missing")?;
 
-    // Optionally spend one bait for a recruit bonus (consumed regardless of the outcome).
+    // Optionally spend one bait for a recruit bonus (consumed regardless of the outcome). "Bait" is
+    // data-driven — any owned item whose template grants a recruit bonus — matching the client's
+    // bait count; no hard-coded item id.
     let mut bait_bonus = 0u16;
     if use_bait {
         let stack = ctx
@@ -1468,15 +1497,22 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
             .player_item()
             .owner_identity()
             .filter(ctx.sender)
-            .find(|pi| pi.item_id == BAIT_ITEM_ID && pi.quantity > 0)
+            .find(|pi| {
+                pi.quantity > 0
+                    && ctx
+                        .db
+                        .item()
+                        .item_id()
+                        .find(pi.item_id)
+                        .is_some_and(|it| it.recruit_bonus > 0)
+            })
             .ok_or("you have no bait")?;
-        let item = ctx
+        bait_bonus = ctx
             .db
             .item()
             .item_id()
-            .find(BAIT_ITEM_ID)
-            .ok_or("bait item missing")?;
-        bait_bonus = item.recruit_bonus;
+            .find(stack.item_id)
+            .map_or(0, |it| it.recruit_bonus);
         consume_one(ctx, stack);
     }
 
