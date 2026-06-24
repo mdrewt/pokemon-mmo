@@ -9,6 +9,7 @@
 import type { NetHandle } from '../net/connection';
 import type { Predictor } from '../prediction/predictor';
 import { characterToWasm } from '../convert';
+import { trainingTotal } from '../monster';
 import type { WasmAction, WasmFacing } from '../wasm';
 
 export interface GameCharSnapshot {
@@ -46,6 +47,9 @@ export interface GameSnapshot {
     partySlot: number | null;
     currentHp: number;
     maxHp: number;
+    /** Raising state (M9): loyalty + total training invested across stats. */
+    bond: number;
+    trainingTotal: number;
   }[];
   /** Total monster rows this client has RECEIVED (not filtered). RLS scopes this to the owner, so
    *  it should equal the owned count — a regression guard against the monster table leaking others'
@@ -131,6 +135,8 @@ export function installIntrospection(
         partySlot: m.partySlot ?? null,
         currentHp: m.currentHp,
         maxHp: m.derived.hp,
+        bond: m.bond,
+        trainingTotal: trainingTotal(m.training),
       })),
       visibleMonsterCount: net.store.monsters.size,
       baitCount: net.baitCount(),

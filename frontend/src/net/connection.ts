@@ -45,6 +45,8 @@ export interface NetHandle {
   battle(): Battle | undefined;
   /** The caller's total bait count (any owned item with a recruit bonus) — data-driven, no magic id. */
   baitCount(): number;
+  /** The caller's owned training food (item id + name + count), for the box Raise UI. */
+  foodItems(): { itemId: number; name: string; quantity: number }[];
 
   joinGame(name: string): void;
   enqueueMove(input: MoveInput, seq: bigint): void;
@@ -52,6 +54,8 @@ export interface NetHandle {
   clearQueue(seq: bigint): void;
   renameMonster(monsterId: bigint, name: string): void;
   setPartySlot(monsterId: bigint, slot: number | undefined): void;
+  trainMonster(monsterId: bigint, itemId: number): void;
+  careForMonster(monsterId: bigint): void;
   startBattle(): void;
   submitAction(skillId: number): void;
   swapActive(teamIndex: number): void;
@@ -223,6 +227,15 @@ export function connect(): Promise<NetHandle> {
       });
     };
 
+    // The caller's non-empty owned item stacks — the shared basis for bait/food queries.
+    const ownedStacks = (): PlayerItem[] => {
+      const hex = identity?.toHexString();
+      if (!hex) return [];
+      return [...store.playerItems.values()].filter(
+        (pi) => pi.ownerIdentity.toHexString() === hex && pi.quantity > 0,
+      );
+    };
+
     const handle: NetHandle = {
       store,
       identity: () => identity,
@@ -234,15 +247,21 @@ export function connect(): Promise<NetHandle> {
       species: (speciesId: number) => store.species.get(speciesId),
       skill: (skillId: number) => store.skills.get(skillId),
       battle: () => store.battle,
-      baitCount: () => {
-        const hex = identity?.toHexString();
-        if (!hex) return 0;
-        let total = 0;
-        for (const pi of store.playerItems.values()) {
-          if (pi.ownerIdentity.toHexString() !== hex) continue;
-          if ((store.items.get(pi.itemId)?.recruitBonus ?? 0) > 0) total += pi.quantity;
+      baitCount: () =>
+        ownedStacks().reduce(
+          (sum, pi) =>
+            sum + ((store.items.get(pi.itemId)?.recruitBonus ?? 0) > 0 ? pi.quantity : 0),
+          0,
+        ),
+      foodItems: () => {
+        const out: { itemId: number; name: string; quantity: number }[] = [];
+        for (const pi of ownedStacks()) {
+          const item = store.items.get(pi.itemId);
+          if (item?.trainStat !== undefined) {
+            out.push({ itemId: pi.itemId, name: item.name, quantity: pi.quantity });
+          }
         }
-        return total;
+        return out.sort((a, b) => a.itemId - b.itemId);
       },
       joinGame: (name: string) => {
         void conn.reducers.joinGame({ name });
@@ -261,6 +280,12 @@ export function connect(): Promise<NetHandle> {
       },
       setPartySlot: (monsterId: bigint, slot: number | undefined) => {
         void conn.reducers.setPartySlot({ monsterId, slot });
+      },
+      trainMonster: (monsterId: bigint, itemId: number) => {
+        void conn.reducers.trainMonster({ monsterId, itemId });
+      },
+      careForMonster: (monsterId: bigint) => {
+        void conn.reducers.careForMonster({ monsterId });
       },
       startBattle: () => {
         void conn.reducers.startBattle({});

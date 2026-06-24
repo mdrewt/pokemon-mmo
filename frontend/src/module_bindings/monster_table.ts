@@ -41,4 +41,5 @@ export default __t.row({
     return StatBlock;
   },
   partySlot: __t.option(__t.u8()).name("party_slot"),
+  lastCareAtMs: __t.i64().name("last_care_at_ms"),
 });

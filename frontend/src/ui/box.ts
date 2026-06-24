@@ -5,6 +5,7 @@
 
 import type { NetHandle } from '../net/connection';
 import type { Monster } from '../module_bindings/types';
+import { BOND_MAX, TRAINING_TOTAL_MAX, trainingTotal } from '../monster';
 import { affinityColor } from './affinity';
 
 const PARTY_SIZE = 3;
@@ -200,27 +201,31 @@ export class BoxScreen {
     panel.append(heading);
 
     const d = m.derived;
+    const t = m.training;
     panel.append(
       this.#infoGrid([
         ['Temperament', m.temperament.tag],
-        ['Bond', String(m.bond)],
-        ['HP', `${m.currentHp} / ${d.hp}`],
+        ['Bond', `${m.bond} / ${BOND_MAX}`],
+        // HP has no stat bar, so surface its training here so HP food gives visible feedback too.
+        ['HP', t.hp > 0 ? `${m.currentHp} / ${d.hp}  +${t.hp}` : `${m.currentHp} / ${d.hp}`],
+        ['Training', `${trainingTotal(t)} / ${TRAINING_TOTAL_MAX}`],
       ]),
       this.#xpProgress(m),
     );
 
     // Combat stats as bold label + proportional bar (absolute strength vs STAT_BAR_MAX, so the bar
-    // fills as the monster is raised) + tabular value.
+    // fills as the monster is raised) + tabular value, with the training invested in each stat.
     const barColor = this.#affinityColor(m);
     const statBlock = document.createElement('div');
     statBlock.style.cssText = 'display:flex;flex-direction:column;gap:5px;margin-top:2px;';
     statBlock.append(
-      this.#statBar('Attack', d.attack, STAT_BAR_MAX, barColor),
-      this.#statBar('Defense', d.defense, STAT_BAR_MAX, barColor),
-      this.#statBar('Special', d.special, STAT_BAR_MAX, barColor),
-      this.#statBar('Speed', d.speed, STAT_BAR_MAX, barColor),
+      this.#statBar('Attack', d.attack, STAT_BAR_MAX, barColor, t.attack),
+      this.#statBar('Defense', d.defense, STAT_BAR_MAX, barColor, t.defense),
+      this.#statBar('Special', d.special, STAT_BAR_MAX, barColor, t.special),
+      this.#statBar('Speed', d.speed, STAT_BAR_MAX, barColor, t.speed),
     );
     panel.append(statBlock);
+    panel.append(this.#raiseControls(m));
 
     // Rename
     const renameRow = document.createElement('form');
@@ -305,11 +310,12 @@ export class BoxScreen {
     return wrap;
   }
 
-  /** One combat stat as a bold label + proportional bar + right-aligned tabular value. */
-  #statBar(label: string, value: number, max: number, color: string): HTMLElement {
+  /** One combat stat as a bold label + proportional bar + right-aligned tabular value, with the
+   *  training invested in that stat shown as a dim "+N" (the visible raising divergence). */
+  #statBar(label: string, value: number, max: number, color: string, ev = 0): HTMLElement {
     const row = document.createElement('div');
     row.style.cssText =
-      'display:grid;grid-template-columns:64px 1fr 28px;column-gap:10px;align-items:center;';
+      'display:grid;grid-template-columns:64px 1fr 64px;column-gap:10px;align-items:center;';
     const l = document.createElement('span');
     l.textContent = label;
     l.style.cssText = LABEL_STYLE;
@@ -320,10 +326,42 @@ export class BoxScreen {
     fill.style.cssText = `height:100%;width:${pct}%;background:${color};border-radius:4px;`;
     track.append(fill);
     const v = document.createElement('span');
-    v.textContent = String(value);
     v.style.cssText = 'font-variant-numeric:tabular-nums;text-align:right;';
+    v.textContent = String(value);
+    if (ev > 0) {
+      const evel = document.createElement('span');
+      evel.textContent = ` +${ev}`;
+      evel.style.cssText = 'opacity:0.55;font-size:11px;';
+      v.append(evel);
+    }
     row.append(l, track, v);
     return row;
+  }
+
+  /** The "Raise" controls: care (builds bond, cooldown-gated) + feed a training food per stat. */
+  #raiseControls(m: Monster): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:6px;';
+    const label = document.createElement('span');
+    label.textContent = 'RAISE';
+    label.style.cssText = LABEL_STYLE;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+
+    const care = this.#button('Care · +bond');
+    care.dataset.care = '1'; // test hook for the e2e
+    care.onclick = () => this.#net.careForMonster(m.monsterId);
+    row.append(care);
+
+    for (const f of this.#net.foodItems()) {
+      const b = this.#button(`Feed ${f.name} (×${f.quantity})`);
+      b.dataset.feed = String(f.itemId); // test hook for the e2e
+      b.onclick = () => this.#net.trainMonster(m.monsterId, f.itemId);
+      row.append(b);
+    }
+
+    wrap.append(label, row);
+    return wrap;
   }
 
   #button(label: string, type: 'button' | 'submit' = 'button'): HTMLButtonElement {

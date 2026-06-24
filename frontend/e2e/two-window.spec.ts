@@ -428,6 +428,32 @@ test.describe.serial('two-window integration', () => {
     await fleeIfBattling(pageA);
   });
 
+  test('a monster can be trained with food and cared for (M9)', async () => {
+    const starterId = (await snapshot(pageA)).monsters.find((m) => m.partySlot === 0)!.monsterId;
+    const find = async () =>
+      (await snapshot(pageA)).monsters.find((m) => m.monsterId === starterId)!;
+
+    await pageA.locator('#app').click();
+    await pageA.keyboard.press('KeyB');
+    await expect(pageA.locator('#box-screen')).toBeVisible();
+    await expect(pageA.locator('#box-screen')).toContainText('Training');
+    // Select the starter (party slot 0) so the Raise controls act on it.
+    await pageA.locator(`#box-screen [data-monster-id="${starterId}"]`).click();
+
+    // Feed a Power Snack (item 2) → training investment rises (the visible raising divergence).
+    const beforeTrain = (await find()).trainingTotal;
+    await pageA.locator('#box-screen [data-feed="2"]').click();
+    await expect.poll(async () => (await find()).trainingTotal).toBeGreaterThan(beforeTrain);
+
+    // Care for it → bond rises (cooldown allows the first call immediately).
+    const beforeBond = (await find()).bond;
+    await pageA.locator('#box-screen [data-care="1"]').click();
+    await expect.poll(async () => (await find()).bond).toBeGreaterThan(beforeBond);
+
+    await pageA.keyboard.press('Escape');
+    await expect(pageA.locator('#box-screen')).toBeHidden();
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

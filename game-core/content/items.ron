@@ -1,8 +1,15 @@
-// Item content (data, not code). M8 ships one item: recruit bait. Embedded via include_str! and
-// parsed by `game_core::load_items`; the server seeds it into the `item` table at init.
+// Item content (data, not code). M8 ships recruit bait; M9 adds training food. Embedded via
+// include_str! and parsed by `game_core::load_items`; the server seeds it into the `item` table.
 //
-// Format: a list of Item = (id, name, recruit_bonus). `recruit_bonus` is the permille added to the
-// recruit chance when the item is used in a recruit attempt. Keep ids stable and unique.
+// Format: a list of Item = (id, name, recruit_bonus, train_stat, train_amount). `recruit_bonus` is
+// the permille added to the recruit chance when used in a recruit attempt (bait). `train_stat` is
+// the stat trained by this food (None = not food); `train_amount` is the investment it grants (see
+// game_core::apply_training, capped at 252/stat and 510 total). Keep ids stable and unique.
 [
-    (id: 1, name: "Lure", recruit_bonus: 200),
+    (id: 1, name: "Lure",        recruit_bonus: 200, train_stat: None,           train_amount: 0),
+    (id: 2, name: "Power Snack", recruit_bonus: 0,   train_stat: Some(Attack),  train_amount: 60),
+    (id: 3, name: "Guard Snack", recruit_bonus: 0,   train_stat: Some(Defense), train_amount: 60),
+    (id: 4, name: "Focus Snack", recruit_bonus: 0,   train_stat: Some(Special), train_amount: 60),
+    (id: 5, name: "Swift Snack", recruit_bonus: 0,   train_stat: Some(Speed),   train_amount: 60),
+    (id: 6, name: "Hearty Snack", recruit_bonus: 0,  train_stat: Some(Hp),      train_amount: 60),
 ]

@@ -7,6 +7,7 @@ import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
 import AttemptRecruitReducer from "../attempt_recruit_reducer";
+import CareForMonsterReducer from "../care_for_monster_reducer";
 import ClearQueueReducer from "../clear_queue_reducer";
 import CloseBattleReducer from "../close_battle_reducer";
 import EnqueueMoveReducer from "../enqueue_move_reducer";
@@ -18,8 +19,10 @@ import SetPartySlotReducer from "../set_party_slot_reducer";
 import StartBattleReducer from "../start_battle_reducer";
 import SubmitActionReducer from "../submit_action_reducer";
 import SwapActiveReducer from "../swap_active_reducer";
+import TrainMonsterReducer from "../train_monster_reducer";
 
 export type AttemptRecruitParams = __Infer<typeof AttemptRecruitReducer>;
+export type CareForMonsterParams = __Infer<typeof CareForMonsterReducer>;
 export type ClearQueueParams = __Infer<typeof ClearQueueReducer>;
 export type CloseBattleParams = __Infer<typeof CloseBattleReducer>;
 export type EnqueueMoveParams = __Infer<typeof EnqueueMoveReducer>;
@@ -31,4 +34,5 @@ export type SetPartySlotParams = __Infer<typeof SetPartySlotReducer>;
 export type StartBattleParams = __Infer<typeof StartBattleReducer>;
 export type SubmitActionParams = __Infer<typeof SubmitActionReducer>;
 export type SwapActiveParams = __Infer<typeof SwapActiveReducer>;
+export type TrainMonsterParams = __Infer<typeof TrainMonsterReducer>;
 

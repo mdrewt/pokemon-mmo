@@ -193,6 +193,10 @@ export const Item = __t.object("Item", {
   itemId: __t.u32(),
   name: __t.string(),
   recruitBonus: __t.u16(),
+  get trainStat() {
+    return __t.option(Stat);
+  },
+  trainAmount: __t.u16(),
 });
 export type Item = __Infer<typeof Item>;
 
@@ -220,6 +224,7 @@ export const Monster = __t.object("Monster", {
     return StatBlock;
   },
   partySlot: __t.option(__t.u8()),
+  lastCareAtMs: __t.i64(),
 });
 export type Monster = __Infer<typeof Monster>;
 
@@ -303,6 +308,16 @@ export const Species = __t.object("Species", {
   recruitRate: __t.u16(),
 });
 export type Species = __Infer<typeof Species>;
+
+// The tagged union or sum type for the algebraic type `Stat`.
+export const Stat = __t.enum("Stat", {
+  Hp: __t.unit(),
+  Attack: __t.unit(),
+  Defense: __t.unit(),
+  Special: __t.unit(),
+  Speed: __t.unit(),
+});
+export type Stat = __Infer<typeof Stat>;
 
 export const StatBlock = __t.object("StatBlock", {
   hp: __t.u16(),
