@@ -1,0 +1,12 @@
+{
+	"name": "monster-tamer-mmo",
+	"version": "0.1.0",
+	"description": "Agents, commands, and skills for the monster-tamer-mmo project: spec-driven workflow, multi-agent review patterns, and ADR/eval/security automation.",
+	"author": "Drew",
+	"components": {
+		"agents": "./.claude/agents",
+		"commands": "./.claude/commands",
+		"skills": "./.claude/skills",
+		"hooks": "./.claude/settings.json"
+	}
+}

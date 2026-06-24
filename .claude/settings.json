@@ -24,6 +24,8 @@
 	"permissions": {
 		"defaultMode": "acceptEdits",
 		"allow": [
+			"WebSearch",
+			"WebFetch",
 			"Read",
 			"Edit",
 			"Write",
@@ -55,7 +57,9 @@
 			"mcp__codebase-memory-mcp__search_graph",
 			"mcp__codebase-memory-mcp__get_code_snippet",
 			"mcp__codebase-memory-mcp__query_graph",
-			"mcp__codebase-memory-mcp__*"
+			"mcp__codebase-memory-mcp__*",
+			"mcp__playwright__*",
+			"mcp__gitmcp-wasm-bindgen__*"
 		]
 	},
 	"deny": ["Bash(rm -rf //*)", "Read(~/.ssh/*)", "Read(~/.aws/*)"],

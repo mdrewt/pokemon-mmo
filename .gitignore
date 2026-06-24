@@ -59,6 +59,7 @@ Thumbs.db
 # Local Claude Code state (keep shared CLAUDE.md and skills tracked;
 # ignore only personal/local settings).
 .claude/settings.local.json
+future-prompts.md
 # MCP server config contains absolute paths — machine-specific, not shareable.
 # Claude Code VS Code extension reads this from the project root (not .claude/).
 .mcp.json
