@@ -42,6 +42,7 @@ export const AttackEvent = __t.object("AttackEvent", {
 export type AttackEvent = __Infer<typeof AttackEvent>;
 
 export const Battle = __t.object("Battle", {
+  battleId: __t.u64(),
   playerIdentity: __t.identity(),
   get state() {
     return BattleState;

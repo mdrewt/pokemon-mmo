@@ -364,13 +364,14 @@ The pre-M11 review surfaced load-bearing single-player assumptions that M11 (tra
 will fight. These are **decisions to make first**, not code to write early (YAGNI) — but the first
 one is a *breaking schema change that is free now and a migration after launch*, so sequence matters:
 
-- **Battle is keyed per-player → PvP can't share a battle row.** `battle`'s PK is `player_identity`
-  and its RLS filter is `player_identity = :sender`, so two humans can't see/act on one battle, and
-  `BattleState` models `player` vs an AI-driven `enemy`. **Decide first:** move to a synthetic
-  `battle_id` PK + a participant model (RLS = "visible if you're a participant"), and a symmetric
-  `BattleState` that resolves only when *both* sides have submitted (the wild path becomes the
-  degenerate "server fills the NPC action" case). Do the PK change *now*, while `--delete-data` is
-  still acceptable. (Changing `BattleState` is a `game-core` signature change → run impact analysis.)
+- **Battle is keyed per-player → PvP can't share a battle row.** **PK change DONE (M11.2 stage 1):**
+  `battle` is now keyed by a synthetic `battle_id` (auto_inc) with `player_identity` demoted to a
+  non-unique `#[index(btree)]` column (RLS unchanged; "one battle per human" enforced by
+  `begin_encounter`, not a uniqueness constraint) — a behavior-preserving refactor (PvE e2e 18/18) that
+  makes a second participant additive. **Still TODO (M11.2 stage 2):** the participant model proper (RLS
+  = "visible if you're a participant") and a symmetric `BattleState` that resolves only when *both*
+  sides have submitted (the wild path becomes the degenerate "server fills the NPC action" case).
+  Changing `BattleState` is a `game-core` signature change → run impact analysis.
 - **Ownership-transfer / escrow primitive — BUILT in M11.1.** A `trade_offer` table (RLS-scoped to the
   two parties) carries a display-only `MonsterCard` snapshot so a counterparty can see the offered
   monster *without* relaxing the per-owner `monster` RLS. Directed, dual-consent flow

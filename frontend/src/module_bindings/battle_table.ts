@@ -18,7 +18,8 @@ import {
 
 
 export default __t.row({
-  playerIdentity: __t.identity().primaryKey().name("player_identity"),
+  battleId: __t.u64().primaryKey().name("battle_id"),
+  playerIdentity: __t.identity().name("player_identity"),
   get state() {
     return BattleState;
   },
