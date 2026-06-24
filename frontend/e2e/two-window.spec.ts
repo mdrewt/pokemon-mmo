@@ -81,7 +81,9 @@ async function battleAct(page: Page, action: Locator): Promise<void> {
   const before = (await snapshot(page)).battle?.turn ?? -1;
   for (let attempt = 0; attempt < 5; attempt++) {
     const b = (await snapshot(page)).battle;
-    if (!b || b.outcome !== 'Ongoing') return; // battle ended — nothing to submit
+    // Return (don't re-click) if the battle ended OR a prior (slow) click already advanced the turn —
+    // re-clicking after a successful-but-slow submit would double-act (e.g. spend two baits).
+    if (!b || b.outcome !== 'Ongoing' || b.turn > before) return;
     if ((await action.count()) === 0) return;
     await action.first().click().catch(() => undefined); // a detached (re-rendered) node → retry
     try {
@@ -579,9 +581,9 @@ test.describe.serial('two-window integration', () => {
     await pageA.locator(`#box-screen [data-monster-id="${monId}"]`).click();
     await pageA.locator('#box-screen [data-care="1"]').click();
     await pageA.locator('#box-screen [data-care="1"]').click(); // 2nd is within the cooldown → rejected
-    const errToast = pageA.locator('[data-toast="error"]');
-    await expect(errToast.first()).toBeVisible();
-    await expect(errToast.first()).toContainText('time'); // "...needs a little time before you care..."
+    // The rejection is surfaced as an error toast (the message text varies — cooldown vs already-max
+    // — but the point is that a rejected action is no longer silent).
+    await expect(pageA.locator('[data-toast="error"]').first()).toBeVisible();
     await pageA.keyboard.press('Escape');
     await expect(pageA.locator('#box-screen')).toBeHidden();
   });

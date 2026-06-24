@@ -79,12 +79,14 @@ function nowMs(): number {
  * Connect to SpacetimeDB, subscribe to the world tables, and resolve once the connection is
  * established (onConnect). Table rows stream into `store` via change callbacks.
  *
- * `onActionError` is invoked with the server's rejection message whenever a reducer call this client
- * made FAILS (the reducer returned `Err`). Every reducer wrapper routes through this seam, so a
- * rejected action surfaces to the player instead of silently doing nothing. The net layer stays
- * UI-free — `main` wires this to a toast.
+ * `onActionError` is invoked with the server's rejection message whenever a discrete-ACTION reducer
+ * this client made FAILS (the reducer returned `Err`). Those wrappers route through the `call` seam so
+ * a rejected action surfaces to the player instead of silently doing nothing; the high-frequency
+ * MOVEMENT reducers deliberately bypass it (their rejections are normal flow-control). Required (not
+ * defaulted) so a caller can't silently re-introduce swallowed errors. The net layer stays UI-free —
+ * `main` wires this to a toast.
  */
-export function connect(onActionError: (message: string) => void = () => {}): Promise<NetHandle> {
+export function connect(onActionError: (message: string) => void): Promise<NetHandle> {
   const uri = import.meta.env.VITE_SPACETIME_URI ?? DEFAULT_URI;
   const moduleName = import.meta.env.VITE_MODULE_NAME ?? DEFAULT_MODULE;
 
@@ -302,14 +304,17 @@ export function connect(onActionError: (message: string) => void = () => {}): Pr
       joinGame: (name: string) => {
         call(conn.reducers.joinGame({ name }));
       },
+      // Movement reducers are deliberately NOT routed through `call`: their rejections ("move queue
+      // full" anti-flood, "stale input seq") are normal flow-control that prediction/reconciliation
+      // already handles — surfacing them as error toasts would spam the player during normal play.
       enqueueMove: (input: MoveInput, seq: bigint) => {
-        call(conn.reducers.enqueueMove({ input, seq }));
+        void conn.reducers.enqueueMove({ input, seq });
       },
       setMove: (input: MoveInput, seq: bigint) => {
-        call(conn.reducers.setMove({ input, seq }));
+        void conn.reducers.setMove({ input, seq });
       },
       clearQueue: (seq: bigint) => {
-        call(conn.reducers.clearQueue({ seq }));
+        void conn.reducers.clearQueue({ seq });
       },
       renameMonster: (monsterId: bigint, name: string) => {
         call(conn.reducers.renameMonster({ monsterId, name }));
