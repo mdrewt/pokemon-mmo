@@ -51,6 +51,7 @@ export const Battle = __t.object("Battle", {
   enemyLevel: __t.u8(),
   partyMonsterIds: __t.array(__t.u64()),
   opponentMonsterIds: __t.array(__t.u64()),
+  isRaid: __t.bool(),
   get wildPotential() {
     return Potential;
   },
@@ -77,6 +78,7 @@ export const BattleChallenge = __t.object("BattleChallenge", {
   id: __t.u64(),
   fromIdentity: __t.identity(),
   toIdentity: __t.identity(),
+  isRaid: __t.bool(),
   createdAtMs: __t.i64(),
 });
 export type BattleChallenge = __Infer<typeof BattleChallenge>;

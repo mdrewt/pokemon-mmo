@@ -27,6 +27,7 @@ export default __t.row({
   enemyLevel: __t.u8().name("enemy_level"),
   partyMonsterIds: __t.array(__t.u64()).name("party_monster_ids"),
   opponentMonsterIds: __t.array(__t.u64()).name("opponent_monster_ids"),
+  isRaid: __t.bool().name("is_raid"),
   get wildPotential() {
     return Potential.name("wild_potential");
   },

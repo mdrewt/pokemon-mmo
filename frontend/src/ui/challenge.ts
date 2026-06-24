@@ -107,9 +107,10 @@ export class ChallengeScreen {
       'display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px;border-radius:8px;' +
       'background:#11161f;border:1px solid #222c3e;';
 
+    const verb = c.isRaid ? 'invites you to a raid' : 'challenges you';
     const label = document.createElement('span');
     label.textContent = amRecipient
-      ? `${this.#playerName(c.fromIdentity.toHexString())} challenges you!`
+      ? `${this.#playerName(c.fromIdentity.toHexString())} ${verb}!`
       : `Waiting for ${this.#playerName(c.toIdentity.toHexString())}…`;
     row.append(label);
 
@@ -155,12 +156,15 @@ export class ChallengeScreen {
       name.style.cssText = 'min-width:160px;';
       row.append(name);
       if (challenged.has(hex)) {
-        row.append(this.#muted('challenged'));
+        row.append(this.#muted('invited'));
       } else {
-        const btn = this.#button('Challenge');
-        btn.dataset.challengePlayer = hex;
-        btn.onclick = () => this.#net.challengePlayer(p.identity);
-        row.append(btn);
+        const fight = this.#button('Challenge');
+        fight.dataset.challengePlayer = hex;
+        fight.onclick = () => this.#net.challengePlayer(p.identity);
+        const raid = this.#button('Co-op raid', '#3a6050');
+        raid.dataset.raidPlayer = hex;
+        raid.onclick = () => this.#net.inviteToRaid(p.identity);
+        row.append(fight, raid);
       }
       box.append(row);
     }

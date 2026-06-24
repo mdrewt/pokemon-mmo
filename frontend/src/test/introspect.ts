@@ -68,14 +68,16 @@ export interface GameSnapshot {
     toMonsterId: string | null;
     status: string;
   }[];
-  /** Pending PvP challenges this client is party to (M11.2), for challenge-flow assertions. */
-  challenges: { id: string; fromHex: string; toHex: string }[];
+  /** Pending PvP challenges / co-op raid invites this client is party to (M11.2/M11.4). */
+  challenges: { id: string; fromHex: string; toHex: string; isRaid: boolean }[];
   /** This client's own ranked profile (M11.3), or null before it exists. */
   profile: { rating: number; wins: number; losses: number } | null;
   /** The active battle, or null. */
   battle: {
     /** True for a PvP battle (a real opponent), false for a PvE wild encounter. */
     isPvp: boolean;
+    /** True for a co-op raid (M11.4) — two allies vs a boss. */
+    isRaid: boolean;
     /** Whether this client has queued its action for the current PvP turn (waiting for the opponent). */
     iSubmitted: boolean;
     outcome: string;
@@ -172,6 +174,7 @@ export function installIntrospection(
         id: c.id.toString(),
         fromHex: c.fromIdentity.toHexString(),
         toHex: c.toIdentity.toHexString(),
+        isRaid: c.isRaid,
       })),
       profile: (() => {
         const p = net.myProfile();
@@ -183,7 +186,9 @@ export function installIntrospection(
         const p = b.state.player.team[b.state.player.active];
         const e = b.state.enemy.team[b.state.enemy.active];
         return {
-          isPvp: b.playerIdentity.toHexString() !== b.opponentIdentity.toHexString(),
+          isPvp:
+            b.playerIdentity.toHexString() !== b.opponentIdentity.toHexString() && !b.isRaid,
+          isRaid: b.isRaid,
           iSubmitted: net.hasQueuedAction(b.battleId),
           outcome: b.state.outcome.tag,
           turn: b.state.turn,

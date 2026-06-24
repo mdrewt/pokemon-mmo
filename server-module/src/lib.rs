@@ -15,13 +15,13 @@ use game_core::{
     apply_care, apply_move, apply_training, attempt_recruit as recruit_succeeds, battle_xp_reward,
     derive_stats, eligible_evolutions, elo_update, encounter_triggers, find_fusion, fuse_offspring,
     level_bounds, load_encounters, load_fusions, load_items, load_skills, load_species,
-    load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance, resolve_enemy_turn,
-    resolve_player_swap, resolve_turn, roll_individuality, roll_starter, xp_for_level, ActionState,
-    Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide, BattleState, Bond, Category,
-    CharacterState, Direction, Effectiveness, EncounterTable, Evolution, FusionRecipe, Level,
-    Millis, MonsterInstance, MoveInput, NpcParams, Potential, Skill as CoreSkill,
-    Species as CoreSpecies, SpeciesId, Stat, StatBlock, Temperament, TileMap, TilePos, Training,
-    TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STARTING_RATING, STEP_MS,
+    load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance, resolve_coop_turn,
+    resolve_enemy_turn, resolve_player_swap, resolve_turn, roll_individuality, roll_starter,
+    xp_for_level, ActionState, Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide,
+    BattleState, Bond, Category, CharacterState, Direction, Effectiveness, EncounterTable,
+    Evolution, FusionRecipe, Level, Millis, MonsterInstance, MoveInput, NpcParams, Potential,
+    Skill as CoreSkill, Species as CoreSpecies, SpeciesId, Stat, StatBlock, Temperament, TileMap,
+    TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STARTING_RATING, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{
@@ -261,6 +261,12 @@ pub struct Battle {
     /// PvE wild (the enemy has no monster row). PvP resolve-when-both-submit uses the private
     /// `battle_action` table (not a field here), so neither player can see the other's pending pick.
     pub opponent_monster_ids: Vec<u64>,
+    /// True for a CO-OP RAID (M11.4): `player_identity` + `opponent_identity` are then ALLIES (both
+    /// monsters sit on `state.player.team`, A at index 0 and B at index 1) fighting the AI boss in
+    /// `state.enemy`. So a raid has `player != opponent` (like PvP) but is NOT PvP — `is_pvp` excludes
+    /// it. `party_monster_ids` holds A's monster, `opponent_monster_ids` holds B's (each on the player
+    /// side; HP writes back to its own owner).
+    pub is_raid: bool,
     /// The wild enemy's rolled individuality, kept so a successful recruit reconstructs *this exact*
     /// monster (not a fresh re-roll). The wild is `state.enemy`'s single active member. (PvE only.)
     pub wild_potential: Potential,
@@ -325,9 +331,10 @@ const BATTLE_VISIBILITY: Filter = Filter::Sql(
     "SELECT * FROM battle WHERE player_identity = :sender OR opponent_identity = :sender",
 );
 
-/// A pending PvP battle challenge from one player to another (M11.2). RLS-scoped to the two parties;
-/// the recipient's client resolves the challenger's name from the public `player` table. Accepting
-/// builds a shared `battle`; declining or disconnecting deletes it.
+/// A pending invite from one player to another (M11.2/M11.4): a PvP challenge (`is_raid = false`) or a
+/// co-op raid invite (`is_raid = true`). RLS-scoped to the two parties; the recipient's client resolves
+/// the sender's name from the public `player` table. Accepting builds a shared `battle`; declining or
+/// disconnecting deletes it.
 #[spacetimedb::table(name = battle_challenge, public)]
 pub struct BattleChallenge {
     #[primary_key]
@@ -337,6 +344,8 @@ pub struct BattleChallenge {
     pub from_identity: Identity,
     #[index(btree)]
     pub to_identity: Identity,
+    /// `true` = co-op raid invite (team up vs a boss); `false` = a PvP duel challenge.
+    pub is_raid: bool,
     pub created_at_ms: i64,
 }
 
@@ -674,10 +683,16 @@ fn caller_monster(ctx: &ReducerContext, monster_id: u64) -> Result<Monster, Stri
     Ok(monster)
 }
 
-/// Whether a battle is player-vs-player (a real second human) rather than a PvE wild encounter, where
-/// `opponent_identity` is the self-sentinel.
-fn is_pvp(battle: &Battle) -> bool {
+/// Whether a battle involves a second human (PvP foe OR co-op raid ally) rather than just a PvE wild,
+/// where `opponent_identity` is the self-sentinel. Used to forbid the solo-only actions (swap/recruit).
+fn is_multiplayer(battle: &Battle) -> bool {
     battle.player_identity != battle.opponent_identity
+}
+
+/// Whether a battle is ranked player-vs-player (the second human is a FOE). A co-op raid also has a
+/// second human, but as an ALLY — so it is multiplayer but NOT PvP (no ranked rating).
+fn is_pvp(battle: &Battle) -> bool {
+    is_multiplayer(battle) && !battle.is_raid
 }
 
 /// A player's active battle, if any — found whether they are the challenger (`player_identity`) or the
@@ -984,9 +999,27 @@ fn persist_side_hp(
     }
 }
 
-/// Persist post-turn HP for every human side of a battle: the player side always, and the opponent
-/// side too when it's PvP (the PvE wild side has no monster rows — `opponent_monster_ids` is empty).
+/// Persist post-turn HP for every human side of a battle.
+/// - PvE/PvP: `state.player.team` → `party_monster_ids` (owner = player_identity), and `state.enemy.team`
+///   → `opponent_monster_ids` (owner = opponent_identity; empty for a PvE wild).
+/// - Raid: BOTH humans are on `state.player.team` — index 0 is the challenger's monster, index 1 the
+///   accepter's; the boss (enemy) has no row.
 fn persist_battle_hp(ctx: &ReducerContext, battle: &Battle) {
+    if battle.is_raid {
+        persist_side_hp(
+            ctx,
+            &battle.state.player.team[..1],
+            &battle.party_monster_ids,
+            battle.player_identity,
+        );
+        persist_side_hp(
+            ctx,
+            &battle.state.player.team[1..],
+            &battle.opponent_monster_ids,
+            battle.opponent_identity,
+        );
+        return;
+    }
     persist_side_hp(
         ctx,
         &battle.state.player.team,
@@ -1127,6 +1160,7 @@ fn begin_encounter(ctx: &ReducerContext, identity: Identity) -> Result<(), Strin
         enemy_level: level.0,
         party_monster_ids,
         opponent_monster_ids: Vec::new(),
+        is_raid: false,
         wild_potential,
         wild_temperament,
         last_events: Vec::new(),
@@ -1251,10 +1285,18 @@ pub fn client_disconnected(ctx: &ReducerContext) {
     // still lands correctly despite the ordering.
     if let Some(mut battle) = caller_battle(ctx) {
         clear_battle_actions(ctx, battle.battle_id);
-        if is_pvp(&battle) && !battle.state.is_over() {
-            battle.state.outcome = forfeit_outcome(&battle, ctx.sender);
+        if is_multiplayer(&battle) && !battle.state.is_over() {
+            // PvP forfeit (other wins, ranked loss) or abandoned raid (team fails, no rating) — mark it
+            // terminal so the remaining player sees a result and dismisses it.
+            battle.state.outcome = if is_pvp(&battle) {
+                forfeit_outcome(&battle, ctx.sender)
+            } else {
+                BattleOutcome::PlayerLost // raid abandoned
+            };
             persist_battle_hp(ctx, &battle);
-            apply_pvp_rating(ctx, &battle); // disconnecting counts as a ranked loss
+            if is_pvp(&battle) {
+                apply_pvp_rating(ctx, &battle);
+            }
             ctx.db.battle().battle_id().update(battle);
         } else {
             ctx.db.battle().battle_id().delete(battle.battle_id);
@@ -1858,6 +1900,50 @@ fn clear_battle_actions(ctx: &ReducerContext, battle_id: u64) {
     }
 }
 
+/// Record the caller's pick for a both-submit battle (PvP duel or co-op raid) in the private
+/// `battle_action` table, rejecting a double-submit within the turn. Returns
+/// `Some((player_side_skill, opponent_side_skill))` once BOTH participants have chosen (ready to
+/// resolve), else `None`. The caller validates the skill against its own monster first.
+fn record_pick(
+    ctx: &ReducerContext,
+    battle: &Battle,
+    skill_id: u32,
+) -> Result<Option<(u32, u32)>, String> {
+    let actions: Vec<BattleAction> = ctx
+        .db
+        .battle_action()
+        .battle_id()
+        .filter(battle.battle_id)
+        .collect();
+    if actions.iter().any(|a| a.chooser_identity == ctx.sender) {
+        return Err("you've already chosen this turn".to_string());
+    }
+    ctx.db.battle_action().insert(BattleAction {
+        id: 0, // auto_inc
+        battle_id: battle.battle_id,
+        chooser_identity: ctx.sender,
+        skill_id,
+    });
+    // Look up each participant's queued skill by identity (the just-inserted pick is the caller's).
+    let pick = |who: Identity| -> Option<u32> {
+        actions
+            .iter()
+            .find(|a| a.chooser_identity == who)
+            .map(|a| a.skill_id)
+            .or(if who == ctx.sender {
+                Some(skill_id)
+            } else {
+                None
+            })
+    };
+    Ok(
+        match (pick(battle.player_identity), pick(battle.opponent_identity)) {
+            (Some(p), Some(o)) => Some((p, o)),
+            _ => None,
+        },
+    )
+}
+
 /// Delete every pending challenge a player is party to (on accept/decline cleanup + disconnect).
 fn clear_challenges(ctx: &ReducerContext, identity: Identity) {
     let ids: Vec<u64> = ctx
@@ -1873,13 +1959,12 @@ fn clear_challenges(ctx: &ReducerContext, identity: Identity) {
     }
 }
 
-/// Challenge another player to a PvP battle. The caller (`ctx.sender`) must have a fightable party and
-/// not be mid-battle; `to_identity` must be an online player who isn't mid-battle. Inserts a pending
-/// challenge the recipient can `accept_challenge`.
-#[spacetimedb::reducer]
-pub fn challenge_player(ctx: &ReducerContext, to_identity: Identity) -> Result<(), String> {
+/// Send a PvP challenge (`is_raid = false`) or co-op raid invite (`is_raid = true`) to another player.
+/// The caller must have a fightable party and not be mid-battle; the target must be a player who isn't
+/// mid-battle. One outstanding invite per (sender, target) — so a victim can't be spammed.
+fn create_invite(ctx: &ReducerContext, to_identity: Identity, is_raid: bool) -> Result<(), String> {
     if to_identity == ctx.sender {
-        return Err("you can't challenge yourself".to_string());
+        return Err("you can't invite yourself".to_string());
     }
     if ctx.db.player().identity().find(to_identity).is_none() {
         return Err("no such player".to_string());
@@ -1887,10 +1972,7 @@ pub fn challenge_player(ctx: &ReducerContext, to_identity: Identity) -> Result<(
     if player_battle(ctx, ctx.sender).is_some() || player_battle(ctx, to_identity).is_some() {
         return Err("a player is already in a battle".to_string());
     }
-    // Validate the challenger can actually field a team (rejects an empty/all-fainted party).
-    build_party_side(ctx, ctx.sender)?;
-    // One outstanding challenge per (challenger, target) — so a single victim can't be spammed and
-    // `decline_challenge` is meaningful.
+    build_party_side(ctx, ctx.sender)?; // rejects an empty/all-fainted party
     let mine: Vec<BattleChallenge> = ctx
         .db
         .battle_challenge()
@@ -1898,23 +1980,95 @@ pub fn challenge_player(ctx: &ReducerContext, to_identity: Identity) -> Result<(
         .filter(ctx.sender)
         .collect();
     if mine.iter().any(|c| c.to_identity == to_identity) {
-        return Err("you've already challenged that player".to_string());
+        return Err("you've already invited that player".to_string());
     }
     if mine.len() >= MAX_OPEN_CHALLENGES {
-        return Err("you have too many open challenges".to_string());
+        return Err("you have too many open invites".to_string());
     }
     ctx.db.battle_challenge().insert(BattleChallenge {
         id: 0, // auto_inc
         from_identity: ctx.sender,
         to_identity,
+        is_raid,
         created_at_ms: now_ms(ctx) as i64,
     });
     Ok(())
 }
 
-/// Accept a challenge addressed to the caller: re-validate both players, build both party sides, and
-/// insert ONE shared `battle` (challenger = `player_identity`, accepter = `opponent_identity`). Clears
-/// the parties' pending challenges. Atomic (one reducer = one transaction).
+/// Challenge another player to a ranked PvP battle.
+#[spacetimedb::reducer]
+pub fn challenge_player(ctx: &ReducerContext, to_identity: Identity) -> Result<(), String> {
+    create_invite(ctx, to_identity, false)
+}
+
+/// Invite another player to a CO-OP RAID — team up against a boss (M11.4).
+#[spacetimedb::reducer]
+pub fn invite_to_raid(ctx: &ReducerContext, to_identity: Identity) -> Result<(), String> {
+    create_invite(ctx, to_identity, true)
+}
+
+/// The level of a co-op raid boss — elevated so two allies have a real fight on their hands.
+const BOSS_LEVEL: u8 = 5;
+
+/// One player's LEAD battle monster (the first conscious party member) + its `monster_id`. For a raid,
+/// each ally contributes their lead to the shared team.
+fn ally_lead(ctx: &ReducerContext, identity: Identity) -> Result<(BattleMonster, u64), String> {
+    let (side, ids) = build_party_side(ctx, identity)?;
+    let i = side.active as usize;
+    Ok((side.team[i].clone(), ids[i]))
+}
+
+/// Roll a co-op raid boss: a wild species from the zone table, at the elevated `BOSS_LEVEL`.
+fn roll_boss(ctx: &ReducerContext) -> Result<BattleMonster, String> {
+    let table = encounter_table_from_db(ctx, ENCOUNTER_ZONE);
+    let (species_id, _) = table
+        .roll_encounter(ctx.random::<u32>(), ctx.random::<u32>())
+        .ok_or("no encounters configured")?;
+    let sp = ctx
+        .db
+        .species()
+        .species_id()
+        .find(species_id.0)
+        .ok_or("encounter species missing")?;
+    let (boss, _, _) = roll_wild(ctx, &sp, BOSS_LEVEL);
+    Ok(boss)
+}
+
+/// Build a co-op raid: each ally's lead monster sits on `state.player.team` (challenger at 0, accepter
+/// at 1) against an AI boss in `state.enemy`. `party_monster_ids` is the challenger's monster, and
+/// `opponent_monster_ids` the accepter's (each writes HP back to its own owner).
+fn build_raid_battle(
+    ctx: &ReducerContext,
+    challenger: Identity,
+    accepter: Identity,
+) -> Result<(), String> {
+    let (a_lead, a_id) = ally_lead(ctx, challenger)?;
+    let (b_lead, b_id) = ally_lead(ctx, accepter)?;
+    let boss = roll_boss(ctx)?;
+    ctx.db.battle().insert(Battle {
+        battle_id: 0, // auto_inc
+        player_identity: challenger,
+        opponent_identity: accepter,
+        state: BattleState::new(
+            BattleSide::new(vec![a_lead, b_lead]),
+            BattleSide::new(vec![boss]),
+        ),
+        enemy_level: BOSS_LEVEL,
+        party_monster_ids: vec![a_id],
+        opponent_monster_ids: vec![b_id],
+        is_raid: true,
+        wild_potential: Potential::default(),
+        wild_temperament: Temperament::Hardy, // the boss's AI picks its move; no recruit
+        last_events: Vec::new(),
+        last_xp_gain: 0,
+        leveled_up: false,
+    });
+    Ok(())
+}
+
+/// Accept an invite addressed to the caller: re-validate both players, then insert ONE shared `battle`
+/// — a PvP duel (both parties) or a co-op raid (both leads vs a boss), per the invite. Clears the
+/// parties' pending invites. Atomic (one reducer = one transaction).
 #[spacetimedb::reducer]
 pub fn accept_challenge(ctx: &ReducerContext, challenge_id: u64) -> Result<(), String> {
     let challenge = ctx
@@ -1924,31 +2078,36 @@ pub fn accept_challenge(ctx: &ReducerContext, challenge_id: u64) -> Result<(), S
         .find(challenge_id)
         .ok_or("challenge not found")?;
     if challenge.to_identity != ctx.sender {
-        return Err("this challenge isn't yours to accept".to_string());
+        return Err("this invite isn't yours to accept".to_string());
     }
     let challenger = challenge.from_identity;
     if player_battle(ctx, challenger).is_some() || player_battle(ctx, ctx.sender).is_some() {
         return Err("a player is already in a battle".to_string());
     }
-    // Build both sides from current parties (rejects if either can't field a team).
-    let (player_side, party_monster_ids) = build_party_side(ctx, challenger)?;
-    let (opponent_side, opponent_monster_ids) = build_party_side(ctx, ctx.sender)?;
 
-    ctx.db.battle().insert(Battle {
-        battle_id: 0, // auto_inc
-        player_identity: challenger,
-        opponent_identity: ctx.sender,
-        state: BattleState::new(player_side, opponent_side),
-        enemy_level: 0,
-        party_monster_ids,
-        opponent_monster_ids,
-        wild_potential: Potential::default(),
-        wild_temperament: Temperament::Hardy, // unused in PvP (no wild)
-        last_events: Vec::new(),
-        last_xp_gain: 0,
-        leveled_up: false,
-    });
-    // Both players are now committed; drop every other pending challenge they were party to.
+    if challenge.is_raid {
+        build_raid_battle(ctx, challenger, ctx.sender)?;
+    } else {
+        // PvP: both full parties, challenger = player side, accepter = enemy side.
+        let (player_side, party_monster_ids) = build_party_side(ctx, challenger)?;
+        let (opponent_side, opponent_monster_ids) = build_party_side(ctx, ctx.sender)?;
+        ctx.db.battle().insert(Battle {
+            battle_id: 0, // auto_inc
+            player_identity: challenger,
+            opponent_identity: ctx.sender,
+            state: BattleState::new(player_side, opponent_side),
+            enemy_level: 0,
+            party_monster_ids,
+            opponent_monster_ids,
+            is_raid: false,
+            wild_potential: Potential::default(),
+            wild_temperament: Temperament::Hardy, // unused in PvP (no wild)
+            last_events: Vec::new(),
+            last_xp_gain: 0,
+            leveled_up: false,
+        });
+    }
+    // Both players are now committed; drop every other pending invite they were party to.
     clear_challenges(ctx, challenger);
     clear_challenges(ctx, ctx.sender);
     Ok(())
@@ -1989,10 +2148,52 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
         return Err("battle is over".to_string());
     }
 
+    if battle.is_raid {
+        // Co-op raid: each ally controls their own monster (challenger = team[0], accepter = team[1]).
+        let my_idx = if ctx.sender == battle.player_identity {
+            0
+        } else {
+            1
+        };
+        validate_known_skill(ctx, battle.state.player.team[my_idx].species_id, skill_id)?;
+        // Resolve once BOTH allies have chosen; the boss's move is AI-picked.
+        if let Some((a, b)) = record_pick(ctx, &battle, skill_id)? {
+            let chart = type_chart_from_db(ctx);
+            let a_skill = core_skill_by_id(ctx, a)?;
+            let b_skill = core_skill_by_id(ctx, b)?;
+            let boss_skill = enemy_skill_choice(ctx, &battle.state, &chart)?;
+            let (new_state, events) = resolve_coop_turn(
+                &battle.state,
+                &a_skill,
+                &b_skill,
+                &boss_skill,
+                &chart,
+                variance(ctx),
+                variance(ctx),
+                variance(ctx),
+            );
+            let cleared = new_state.outcome == BattleOutcome::PlayerWon;
+            battle.state = new_state;
+            battle.last_events = events;
+            clear_battle_actions(ctx, battle.battle_id);
+            persist_battle_hp(ctx, &battle);
+            // A cleared raid is a shared victory: BOTH allies' parties earn XP.
+            if cleared {
+                let gain = battle_xp_reward(battle.enemy_level);
+                battle.last_xp_gain = gain;
+                let a_up = award_battle_xp(ctx, battle.player_identity, gain);
+                let b_up = award_battle_xp(ctx, battle.opponent_identity, gain);
+                battle.leveled_up = a_up || b_up;
+            }
+            ctx.db.battle().battle_id().update(battle);
+        }
+        return Ok(());
+    }
+
     if is_pvp(&battle) {
         // Validate against the CALLER's active monster (player side = challenger, enemy side = accepter).
-        // The challenger acts first on a SPEED TIE (resolve_turn's tie-break favors `state.player`); this
-        // is a known, documented first-cut rule, not balanced via a coin flip yet.
+        // The challenger acts first on a SPEED TIE (resolve_turn's tie-break favors `state.player`); a
+        // known, documented first-cut rule, not yet balanced via a coin flip.
         let caller_is_player = ctx.sender == battle.player_identity;
         let active_species_id = if caller_is_player {
             battle.state.player.active_ref().species_id
@@ -2000,39 +2201,8 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
             battle.state.enemy.active_ref().species_id
         };
         validate_known_skill(ctx, active_species_id, skill_id)?;
-
-        // Record this side's choice in the PRIVATE per-chooser table (the opponent can't see it). Reject
-        // a double-submit within the turn.
-        let actions: Vec<BattleAction> = ctx
-            .db
-            .battle_action()
-            .battle_id()
-            .filter(battle.battle_id)
-            .collect();
-        if actions.iter().any(|a| a.chooser_identity == ctx.sender) {
-            return Err("you've already chosen this turn".to_string());
-        }
-        ctx.db.battle_action().insert(BattleAction {
-            id: 0, // auto_inc
-            battle_id: battle.battle_id,
-            chooser_identity: ctx.sender,
-            skill_id,
-        });
-
-        // Resolve only once BOTH sides have chosen. Look up each side's queued skill by chooser identity.
-        let pick = |who: Identity| -> Option<u32> {
-            actions
-                .iter()
-                .find(|a| a.chooser_identity == who)
-                .map(|a| a.skill_id)
-                .or(if who == ctx.sender {
-                    Some(skill_id)
-                } else {
-                    None
-                })
-        };
-        if let (Some(ps), Some(es)) = (pick(battle.player_identity), pick(battle.opponent_identity))
-        {
+        // Resolve only once BOTH sides have chosen (picks are private — the opponent can't peek).
+        if let Some((ps, es)) = record_pick(ctx, &battle, skill_id)? {
             let chart = type_chart_from_db(ctx);
             let player_skill = core_skill_by_id(ctx, ps)?;
             let enemy_skill = core_skill_by_id(ctx, es)?;
@@ -2098,8 +2268,8 @@ pub fn swap_active(ctx: &ReducerContext, team_index: u8) -> Result<(), String> {
     if battle.state.is_over() {
         return Err("battle is over".to_string());
     }
-    if is_pvp(&battle) {
-        return Err("switching isn't available in a PvP battle yet".to_string());
+    if is_multiplayer(&battle) {
+        return Err("switching isn't available in a multiplayer battle yet".to_string());
     }
 
     let team = &battle.state.player.team;
@@ -2143,8 +2313,8 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
     if battle.state.is_over() {
         return Err("battle is over".to_string());
     }
-    if is_pvp(&battle) {
-        return Err("you can't recruit another player's monster".to_string());
+    if is_multiplayer(&battle) {
+        return Err("you can't recruit in a multiplayer battle".to_string());
     }
 
     let enemy = battle.state.enemy.active_ref().clone();
@@ -2262,11 +2432,21 @@ pub fn close_battle(ctx: &ReducerContext) -> Result<(), String> {
     let Some(mut battle) = caller_battle(ctx) else {
         return Ok(()); // nothing to close
     };
-    if is_pvp(&battle) && !battle.state.is_over() {
-        battle.state.outcome = forfeit_outcome(&battle, ctx.sender);
+    // Leaving an ONGOING multiplayer battle ends it for BOTH: a PvP forfeit (the other wins, ranked
+    // loss) or an abandoned raid (the team can't continue without both allies → it fails, no rating).
+    // Mark it terminal so the partner sees a result; the row is removed on dismiss. A terminal battle
+    // or a solo PvE battle is just deleted.
+    if is_multiplayer(&battle) && !battle.state.is_over() {
+        battle.state.outcome = if is_pvp(&battle) {
+            forfeit_outcome(&battle, ctx.sender)
+        } else {
+            BattleOutcome::PlayerLost // raid abandoned
+        };
         persist_battle_hp(ctx, &battle);
-        clear_battle_actions(ctx, battle.battle_id); // no more turns
-        apply_pvp_rating(ctx, &battle); // forfeiting counts as a ranked loss
+        clear_battle_actions(ctx, battle.battle_id);
+        if is_pvp(&battle) {
+            apply_pvp_rating(ctx, &battle);
+        }
         ctx.db.battle().battle_id().update(battle);
         return Ok(());
     }

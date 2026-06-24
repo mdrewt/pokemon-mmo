@@ -351,10 +351,11 @@ type chart + readable core, visible XP, persistent HP (**done**) · M8 finding &
 encounters, recruit-by-weaken, bait, plus a voluntary in-battle switch (**done**) · M9 raising &
 growth — focus-training (food) + care (bond) (**done**) · M10 evolution & fusion — conditional
 branch evolution + fuse-with-inheritance, both keeping/combining individuality (**done**) · **M11
-multiplayer** — split into **M11.1 trading (monsters)** (**done**) · **M11.2 PvP battles** (**done**:
-stage 1 `battle_id` re-key + stage 2 challenge→shared-battle, resolve-when-both-submit, forfeit) ·
-**M11.3 PvP leagues** (**done**: persistent rating ladder — Elo on a `profile` table updated on every
-ranked result) · M11.4 co-op (next).
+multiplayer** (**done**) — **M11.1 trading (monsters)** (escrowed dual-consent swap) · **M11.2 PvP
+battles** (stage 1 `battle_id` re-key + stage 2 challenge→shared-battle, resolve-when-both-submit,
+forfeit) · **M11.3 PvP leagues** (persistent Elo `profile` ladder) · **M11.4 co-op raids** (two allies
+vs an AI boss via the new additive `resolve_coop_turn`, both-submit, shared XP). **The roadmap is
+complete.**
 
 One PR per milestone → CI + the review gates (`reducer-security-auditor`, `desync-guard`,
 `/simplify`, `/code-review`) → merge, with the user verifying user-facing feel first. (See the
