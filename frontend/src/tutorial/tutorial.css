@@ -235,6 +235,32 @@ body {
   border-color: var(--accent);
 }
 
+/* Inline citation superscripts (Wikipedia-style [N] links to a source) */
+.tut-article sup a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.72em;
+  font-weight: 600;
+  padding: 0 1px;
+  white-space: nowrap;
+}
+.tut-article sup a:hover {
+  text-decoration: underline;
+}
+
+/* References section: a compact, dimmer numbered source list at the end of each chapter */
+.tut-article h2#references + ol {
+  font-size: 14px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.tut-article h2#references + ol li {
+  margin: 6px 0;
+}
+.tut-article h2#references + ol li::marker {
+  color: var(--border);
+}
+
 /* Tables */
 .tut-article table {
   border-collapse: collapse;

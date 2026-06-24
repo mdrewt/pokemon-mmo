@@ -11,15 +11,16 @@ the **server** decide every move, at a fixed pace, by calling the `game-core` ru
 
 SpacetimeDB is a database where **your game logic runs inside the database.** You define **tables**
 (like SQL tables, but declared as Rust structs) and **reducers** (Rust functions that run in a
-transaction and are the only things allowed to write tables). Clients don't send SQL; they **call
-reducers** and **subscribe to tables**. When a reducer changes a row, every subscribed client gets the
-update pushed to it live.
+transaction and are the only things allowed to write tables).<sup>[1](https://spacetimedb.com/docs/functions/reducers/)</sup>
+Clients don't send SQL; they **call reducers** and **subscribe to tables**. When a reducer changes a
+row, every subscribed client gets the update pushed to it live.
 
 Two properties make this a great fit for an authoritative multiplayer game:
 
 1. **Reducers are transactional.** A reducer either commits fully or, if it returns an error, aborts
-   with no changes. That gives us atomic multi-row operations for free (fusing two monsters into one,
-   swapping ownership in a trade) — no half-finished states.
+   with no changes.<sup>[2](https://spacetimedb.com/docs/databases/transactions-atomicity/)</sup> That
+   gives us atomic multi-row operations for free (fusing two monsters into one, swapping ownership in a
+   trade) — no half-finished states.
 2. **The client can only express intent.** It calls `enqueue_move(Step(North))`; it cannot reach in
    and set its own position. The server computes the result. That's Bet 1, enforced by the platform.
 
@@ -50,8 +51,8 @@ pub struct Character {
 Read the attributes:
 
 - `#[spacetimedb::table(name = character, public)]` declares a table named `character`. **`public`**
-  means every client can subscribe to and read its rows — correct here, because everyone needs to see
-  everyone else to render the world.
+  means every client can subscribe to and read its rows<sup>[4](https://spacetimedb.com/docs/tables/)</sup> —
+  correct here, because everyone needs to see everyone else to render the world.
 - `#[primary_key]` + `#[auto_inc]` make `entity_id` a unique, server-assigned id.
 - The fields are *flattened* world state: tile coordinates, facing, action, and the **move queue**.
 
@@ -153,7 +154,7 @@ names.
 
 Movement is **server-paced**. Clients fill a queue; the server drains it one step per `STEP_MS`, no
 matter how fast a client spams. That pacing comes from a **scheduled reducer** — a reducer the database
-calls itself on a timer.
+calls itself on a timer.<sup>[3](https://spacetimedb.com/docs/functions/reducers/lifecycle/)</sup>
 
 You opt in by declaring a special table:
 
@@ -328,3 +329,10 @@ Using `spacetime sql`, you can see the `movement_tick_schedule` row exists and t
 (via the CLI's reducer-call) inserts exactly one `player` and one `character` for your identity. The
 NPC visibly wanders when you query its position over time. You have a living, authoritative world — it
 just has no eyes yet. Next we give the browser the ability to *predict* this world so it feels instant.
+
+## References
+
+1. SpacetimeDB Docs — ["Reducers"](https://spacetimedb.com/docs/functions/reducers/). *(Reducers are the only way to mutate tables; `ReducerContext`, `ctx.sender`, the concurrency model.)*
+2. SpacetimeDB Docs — ["Transactions & Atomicity"](https://spacetimedb.com/docs/databases/transactions-atomicity/). *(Each reducer commits fully or rolls back.)*
+3. SpacetimeDB Docs — ["Lifecycle & Scheduled Reducers"](https://spacetimedb.com/docs/functions/reducers/lifecycle/). *(`init`/connect/disconnect, and scheduled reducers driven by a schedule table + `ScheduleAt`.)*
+4. SpacetimeDB Docs — ["Tables"](https://spacetimedb.com/docs/tables/). *(Public vs. private tables and what clients can subscribe to.)*

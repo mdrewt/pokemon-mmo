@@ -75,8 +75,9 @@ fn maybe_trigger_encounter(ctx: &ReducerContext, entity_id: u64) {
 
 ## Recruit-by-weaken: the odds are a pure rule
 
-The catch chance is the single most important number in a tamer, so it lives once, in `game-core`,
-fully deterministic:
+The catch chance is the single most important number in a tamer. Our formula is custom, but the *idea*
+— lower HP (and status/bait) raises the odds — is the genre's classic catch-rate mechanic<sup>[1](https://bulbapedia.bulbagarden.net/wiki/Catch_rate)</sup>.
+It lives once, in `game-core`, fully deterministic:
 
 ```rust
 pub fn recruit_chance(max_hp: u16, current_hp: u16, base_rate: u16, bait_bonus: u16) -> u16 {
@@ -191,3 +192,7 @@ recruiting succeeds more reliably as it weakens (the odds live on the server —
 to "lower its HP first" rather than showing a number). Throw bait, attempt a recruit: on success the
 exact wild — same genes — lands in your box at full HP; on failure it "breaks free" and strikes back.
 The **find → tame** loop is complete and fully authoritative. Next, we make raising those monsters matter.
+
+## References
+
+1. Bulbapedia — ["Catch rate"](https://bulbapedia.bulbagarden.net/wiki/Catch_rate). *(The genre mechanic — lower HP and status raise capture odds — that `recruit_chance` reinterprets.)*

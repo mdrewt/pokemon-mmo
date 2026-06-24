@@ -83,3 +83,55 @@ describe('tutorial content', () => {
     }
   });
 });
+
+/** Inline citation numbers used in the prose, e.g. `<sup>[3](https://…)</sup>` → 3. */
+function citationNumbers(md: string): number[] {
+  return [...md.matchAll(/<sup>\[(\d+)\]\(([^)]+)\)<\/sup>/g)].map((m) => Number(m[1]));
+}
+
+/** Inline citation target URLs, for the trustworthiness check. */
+function citationUrls(md: string): string[] {
+  return [...md.matchAll(/<sup>\[\d+\]\(([^)]+)\)<\/sup>/g)].map((m) => m[1] ?? '');
+}
+
+/** The numbered entries under the chapter's `## References` heading, e.g. `3. [Title](url) …` → 3. */
+function referenceNumbers(md: string): number[] {
+  const idx = md.indexOf('## References');
+  if (idx === -1) return [];
+  return md
+    .slice(idx)
+    .split('\n')
+    .map((line) => /^(\d+)\.\s/.exec(line))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => Number(m[1]));
+}
+
+describe('tutorial references (Wikipedia-style citations)', () => {
+  it('gives every chapter a References section', () => {
+    for (const [path, md] of entries) {
+      expect(md.includes('## References'), `${path} is missing a References section`).toBe(true);
+    }
+  });
+
+  it('matches inline citations to reference entries one-to-one (no dangling or uncited)', () => {
+    for (const [path, md] of entries) {
+      const cited = [...new Set(citationNumbers(md))].sort((a, b) => a - b);
+      const refs = referenceNumbers(md);
+      // References list is a contiguous 1..N with no duplicates.
+      const expected = refs.map((_, i) => i + 1);
+      expect(refs, `${path} references must be numbered 1..N with no gaps`).toEqual(expected);
+      // Every reference is cited at least once, and every inline citation has a reference.
+      expect(cited, `${path}: inline citations must match the References list exactly`).toEqual(
+        expected,
+      );
+    }
+  });
+
+  it('cites only https sources', () => {
+    for (const [path, md] of entries) {
+      for (const url of citationUrls(md)) {
+        expect(url.startsWith('https://'), `${path}: non-https citation ${url}`).toBe(true);
+      }
+    }
+  });
+});

@@ -9,7 +9,7 @@ the browser for *prediction*. Same code, three homes.
 
 ## What WebAssembly buys us here
 
-WebAssembly (WASM) is a compiled binary format the browser runs with fast, predictable performance —
+WebAssembly (WASM)<sup>[1](https://developer.mozilla.org/en-US/docs/WebAssembly)</sup> is a compiled binary format the browser runs with fast, predictable performance —
 typically within a small multiple of native, though "near-native" is an optimistic ceiling, not a
 guarantee, and for tiny calls the cost of crossing the JS↔WASM boundary can eat the win. But raw speed
 isn't really why we reach for it here (a hand-written JS movement function would be plenty fast). The
@@ -59,9 +59,10 @@ This is the "marshaling boundary" pattern:
    It imports the rule and calls it.
 3. **Serialize** the result back to a JS object: `serde_wasm_bindgen::to_value(&next)?`.
 
-The function is `pub fn` annotated with `#[wasm_bindgen]`, which is what makes it callable from
-JavaScript. The signature speaks in `JsValue` (an opaque handle to a JS value) at the edges and in
-real Rust types in the middle. **Marshal at the edge, delegate in the center, marshal back.** If this
+The function is `pub fn` annotated with `#[wasm_bindgen]`<sup>[2](https://rustwasm.github.io/wasm-bindgen/)</sup>,
+which is what makes it callable from JavaScript. The `serde_wasm_bindgen`<sup>[3](https://github.com/RReverser/serde-wasm-bindgen)</sup>
+calls convert serde types to and from JS values. The signature speaks in `JsValue` (an opaque handle
+to a JS value) at the edges and in real Rust types in the middle. **Marshal at the edge, delegate in the center, marshal back.** If this
 file ever grows a `match` on directions or a walkability check, something has gone wrong — that logic
 belongs in `game-core`.
 
@@ -92,9 +93,9 @@ wasm-pack build client-wasm --target bundler
 ```
 
 The `--target bundler` flag is the non-obvious, important choice. `wasm-pack` can emit several output
-shapes; `bundler` produces a standard ES module that a bundler like Vite imports as if it were normal
-JavaScript — it tree-shakes it, and you don't need extra plugins or manual async-init boilerplate. The
-alternative `--target web` produces output that needs you to manually `await` an init function and
+shapes; `bundler` (the default) produces a standard ES module that a bundler like Vite imports as if it
+were normal JavaScript — it tree-shakes it, and you don't need manual async-init boilerplate.<sup>[4](https://rustwasm.github.io/docs/wasm-pack/commands/build.html)</sup>
+The alternative `--target web` produces output that needs you to manually `await` an init function and
 fetch the `.wasm` yourself.
 
 > **Honest caveat:** in this project the bundler output *still* requires two small Vite plugins
@@ -160,3 +161,10 @@ internalize the rule: **WASM is async; await it before you predict.**
 file and a `.js`/`.d.ts` glue pair. You can't *see* anything yet — but you now hold, in the browser's
 hands, the identical rule the server runs. Next we build the eyes, the hands, and the prediction loop
 that ties it all together: the PixiJS frontend.
+
+## References
+
+1. MDN Web Docs — ["WebAssembly"](https://developer.mozilla.org/en-US/docs/WebAssembly). *(What WASM is, how it loads, and its performance characteristics.)*
+2. The `wasm-bindgen` Guide — [rustwasm.github.io/wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/). *(The `#[wasm_bindgen]` boundary, the `start` hook, exported functions.)*
+3. `serde-wasm-bindgen` — [github.com/RReverser/serde-wasm-bindgen](https://github.com/RReverser/serde-wasm-bindgen). *(`from_value`/`to_value` marshaling of serde types across the JS boundary.)*
+4. The `wasm-pack` Book — ["build" command](https://rustwasm.github.io/docs/wasm-pack/commands/build.html). *(The `--target bundler` output and why it's the default for bundlers.)*

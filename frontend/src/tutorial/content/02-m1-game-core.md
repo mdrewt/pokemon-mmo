@@ -31,7 +31,8 @@ spacetimedb = ["dep:spacetimedb"]
 
 The key idea: `game-core` depends on SpacetimeDB **optionally**. By default — which is how the browser
 build sees it — the dependency isn't even compiled. Only the server build flips on the `spacetimedb`
-feature. We'll see exactly what that buys us in a moment.
+feature.<sup>[4](https://doc.rust-lang.org/cargo/reference/features.html)</sup> We'll see exactly what
+that buys us in a moment.
 
 ## The cross-boundary types
 
@@ -65,7 +66,7 @@ That `#[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]` 
 the whole project, so let's read it slowly. `cfg_attr(CONDITION, ATTRIBUTE)` means "apply this
 attribute *only if* the condition holds." The condition is "the `spacetimedb` feature is enabled." So:
 
-- In the **browser build** (feature off): `Direction` derives only `serde`. It's a plain, pure enum.
+- In the **browser build** (feature off): `Direction` derives only `serde`<sup>[5](https://serde.rs/derive.html)</sup> (Rust's serialization framework). It's a plain, pure enum.
 - In the **server build** (feature on): `Direction` *additionally* derives `SpacetimeType`, which lets
   SpacetimeDB store it in a table column and generate a matching TypeScript type for it.
 
@@ -109,12 +110,14 @@ pub struct TilePos {
 
 Why integers? Floating-point results can differ between two *builds* of the same program. The basic
 IEEE-754 operations (`+`, `−`, `×`, `÷`) are actually well-defined and give the same answer on any
-conforming CPU — but a compiler can fuse a multiply-add into one rounding step, reassociate under
-`fast-math`, or call a `sin`/`cos` whose last bit isn't standardized, and once a tiny difference creeps
-into *accumulating* state it compounds: a billionth of a tile, then a thousandth, then visibly. (Our
-two builds — the client's WASM and the server's native binary — are exactly the kind of pair where that
-could happen; WASM pins basic float arithmetic tightly, but the native build's optimizer doesn't have
-to agree on everything.) Integer tile coordinates sidestep the whole question — `2 + 1` is exactly `3`
+conforming CPU<sup>[1](https://en.wikipedia.org/wiki/IEEE_754)</sup> — but a compiler can fuse a
+multiply-add into one rounding step, reassociate under `fast-math`, or call a `sin`/`cos` whose last
+bit isn't standardized, and once a tiny difference creeps into *accumulating* state it compounds: a
+billionth of a tile, then a thousandth, then visibly.<sup>[2](https://gafferongames.com/post/floating_point_determinism/)</sup>
+(Our two builds — the client's WASM and the server's native binary — are exactly the kind of pair where
+that could happen; WASM deliberately pins basic float arithmetic tightly, constraining the only
+nondeterminism to NaN bit patterns,<sup>[3](https://github.com/WebAssembly/design/blob/main/Nondeterminism.md)</sup>
+but the native build's optimizer doesn't have to agree on everything.) Integer tile coordinates sidestep the whole question — `2 + 1` is exactly `3`
 in every build on every machine. The smooth sliding you *see* between tiles is computed only in the
 renderer and never stored or sent. So this **entire class of float-rounding desync is designed out**:
 position can't *numerically* drift. (Logic bugs or a stale build could still diverge — that's what the
@@ -366,3 +369,11 @@ From the repo root, `cargo test -p game-core` should pass — the movement and m
 `cargo clippy -p game-core` should be clean (and would fail loudly if you'd reached for a clock). You
 now have a tiny, pure, fully-tested rulebook with no way to run it interactively yet. Next we give it a
 home that the world can actually talk to: the SpacetimeDB server module.
+
+## References
+
+1. Wikipedia — ["IEEE 754"](https://en.wikipedia.org/wiki/IEEE_754). *(Why basic float ops are well-defined, and where rounding behavior is specified.)*
+2. Glenn Fiedler (Gaffer On Games) — ["Floating Point Determinism"](https://gafferongames.com/post/floating_point_determinism/). *(The real causes of cross-build float divergence — FMA, fast-math, transcendentals.)*
+3. WebAssembly Design — ["Nondeterminism"](https://github.com/WebAssembly/design/blob/main/Nondeterminism.md). *(WASM constrains float nondeterminism to NaN bit patterns.)*
+4. The Cargo Book — ["Features"](https://doc.rust-lang.org/cargo/reference/features.html). *(Optional dependencies and conditional compilation behind a feature flag.)*
+5. Serde — ["Derive"](https://serde.rs/derive.html). *(The `Serialize`/`Deserialize` derives every cross-boundary type uses.)*
