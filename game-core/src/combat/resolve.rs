@@ -55,6 +55,9 @@ impl BattleSide {
         BattleSide { team, active: 0 }
     }
 
+    /// The active combatant. Precondition: `active` is a valid index — upheld by construction
+    /// (`new` sets it to 0, `advance_if_fainted` only moves it to an existing member, and the server
+    /// validates a swap target's range), so this never panics for a battle built through those paths.
     pub fn active_ref(&self) -> &BattleMonster {
         &self.team[self.active as usize]
     }

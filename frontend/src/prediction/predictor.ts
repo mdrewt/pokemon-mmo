@@ -125,18 +125,27 @@ export class Predictor {
    * to authoritative truth, rebuild the queue by replaying the still-pending OPS on top of the
    * authoritative queue, and re-drain to `now`. `authState.move_started_at` must already be rebased
    * to the local clock.
+   *
+   * Returns whether the correction DIVERGED — i.e. the re-drained predicted state lands on a different
+   * tile than we were already showing. When prediction was correct, replaying the unacked ops from the
+   * authoritative baseline reconstructs the same tile, so this is `false`; it is only `true` when the
+   * server actually disagreed (a rejected/blocked move, a teleport). The caller uses this to drop any
+   * committed input direction so a held key re-issues from the corrected position.
    */
   reconcile(
     authState: WasmCharacterState,
     authQueue: WasmMoveInput[],
     ackedSeq: bigint,
     now: number,
-  ): void {
+  ): boolean {
+    const prevX = this.#predicted.pos.x;
+    const prevY = this.#predicted.pos.y;
     this.#pending = this.#pending.filter((p) => p.seq > ackedSeq);
     let queue = [...authQueue];
     for (const p of this.#pending) queue = applyOp(queue, p.op);
     this.#queue = queue;
     this.#predicted = authState;
     this.drain(now);
+    return this.#predicted.pos.x !== prevX || this.#predicted.pos.y !== prevY;
   }
 }

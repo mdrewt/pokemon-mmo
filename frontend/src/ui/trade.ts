@@ -84,9 +84,18 @@ export class TradeScreen {
     }
   }
 
+  /** Drop respond-picker selections for offers that no longer exist, so the map can't grow unbounded. */
+  #pruneRespondChoices(): void {
+    const live = new Set(this.#net.tradeOffers().map((t) => String(t.id)));
+    for (const key of this.#respondChoice.keys()) {
+      if (!live.has(key)) this.#respondChoice.delete(key);
+    }
+  }
+
   #render(): void {
     this.#root.replaceChildren();
     this.#recomputeEscrowed();
+    this.#pruneRespondChoices();
 
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;';

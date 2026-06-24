@@ -1,87 +1,62 @@
 # Known issues & deferred work
 
-Issues and latent fragilities surfaced during the documentation review. None block normal play (the
-full suite is green); these are robustness, balance, and scaling notes for the hardening phase now that
-the feature roadmap is complete. Severity is **Low** unless noted.
+Status of the issues surfaced during the documentation review. The full test suite is green; nothing
+here blocks normal play. The first section is what was fixed; the rest is triaged with rationale.
 
 Cross-cutting deferred items (PvP turn-timeout reaper, schema-migration story, spatial subscriptions,
 CI blind spots) live in [ARCHITECTURE.md → M11 entry-conditions](../ARCHITECTURE.md#m11-entry-conditions-decide-before-building-multiplayer)
-and [Scaling path](../ARCHITECTURE.md#scaling-path). This file lists the code-level items.
+and [Scaling path](../ARCHITECTURE.md#scaling-path).
 
-## Resolved in the documentation pass
+## Resolved
 
-- **Stale / misplaced doc comments** across `game-core`, `server-module`, and `frontend` were corrected
-  (e.g. the `is_pvp` description on the `battle` struct, a duplicated `begin_encounter` doc block, the
-  misattributed `roll_individuality`/`roll_starter` docs, the `damage` "primary affinity" wording, and
-  several outdated milestone tags).
-- **Dead `ScreenManager.toggle()`** and the **vestigial `'menu'` screen state** were removed (`'menu'`
-  was never set and would have been a no-handler trap — a make-illegal-states-unrepresentable fix).
+- **Movement re-issue stalled after a *diverging* reconcile.** `Predictor.reconcile` now **reports
+  whether the correction diverged** (the re-drained predicted tile differs from what was shown); the
+  game loop clears `committedDir` on a divergence so a still-held key re-issues a move from the
+  corrected position instead of stalling a step. Covered by two predictor unit tests (divergence true on
+  a misprediction, false when prediction was correct). *(`frontend/src/prediction/predictor.ts`,
+  `main.ts`, `predictor.test.ts`.)*
+- **`load_fusions` didn't reject an empty list** (inconsistent with every other content loader) — fixed;
+  it now errors like the rest. *(`game-core/src/content/mod.rs`.)*
+- **`TradeScreen.#respondChoice` grew unbounded** — its picker selections are now pruned each render to
+  the set of live offers. *(`frontend/src/ui/trade.ts`.)*
+- **Dead code removed:** `CharacterView.snapTo()` (never invoked), `ScreenManager.toggle()` + the
+  vestigial `'menu'` screen state (an earlier pass), and the unused `rand` / `rand_chacha` dev-deps
+  (no source references them — RNG is injected as a closure).
+- **Stale / misplaced doc comments** across all three crates were corrected (see the documentation-pass
+  commit).
 
-## Balance / exploit (by-design POC placeholders)
+## Re-evaluated — safe as-is (not bugs)
 
-- **`heal_party` is free, untimed, and overworld-only** (`server-module/src/lib.rs`). A bot could
-  heal-to-full after every turn, voiding the weaken-to-recruit loop's attrition. It's documented as a
-  placeholder for a Pokémon-Center-style healing spot; gate it behind a location/cost/cooldown when that
-  content lands.
+- **`battle_action` double-submit has no DB unique constraint, only an in-code guard.** This is
+  sufficient: SpacetimeDB serializes conflicting reducer transactions and re-executes on conflict, so
+  two `submit_action` calls from the *same* identity cannot both observe an empty action set — the
+  second re-runs against the first's committed row and is rejected. A unique constraint would risk
+  insert-panic semantics for no real gain.
+- **`apply_pvp_rating` is "called once" by convention, not structurally.** Every terminal path guards on
+  `!is_over()` and the function no-ops on a non-decisive outcome, so it cannot double-count today. Kept
+  as a documented invariant.
+- **`get_or_init_profile` could in theory insert a blank-named profile.** Unreachable in practice: a
+  profile is created with the name on join, and both battle participants have joined, so the
+  rating path always finds the existing row. The empty-name fallback is dead-defensive.
+- **`persist_battle_hp` raid slicing / `resolve_coop_turn` assume a 2-ally team.** Safe by construction:
+  `build_raid_battle` always builds exactly two leads, and `resolve_coop_turn` degrades gracefully to one
+  ally (a missing `team[1]` is treated as fainted). The invariant is documented at both sites.
+- **`BattleSide::active_ref`/`active_mut` index directly.** `active` is valid by construction (set to 0,
+  only advanced to an existing member, swap target range-checked by the reducer); the precondition is now
+  documented on `active_ref`. A corrupt deserialized `BattleState` is the only theoretical trigger.
 
-## Server robustness (latent, currently safe)
+## Deferred by design (not bugs — awaiting content or a measurement)
 
-- **`battle_action` double-submit guard is in-code only, not a DB unique constraint.** The guard reads a
-  pre-insert snapshot and rejects a second pick. SpacetimeDB *can* re-execute reducers on serialization
-  conflict; two near-simultaneous `submit_action` calls from the same identity could in principle each
-  see an empty set and both insert. Very low likelihood (one identity submits serially). A unique index
-  on `(battle_id, chooser_identity)` would be a backstop.
-- **`apply_pvp_rating` is "called exactly once" by convention,** not structurally. It's a no-op unless
-  the outcome is decisive, and every terminal path guards on `!is_over()`, so today it can't double-count
-  — but a future intermediate decisive-looking outcome would break that. Keep the invariant in mind.
-- **`persist_battle_hp`'s raid branch assumes the exact 2-ally team layout** (`team[..1]` / `team[1..]`
-  mapping to the two owners). Safe because `build_raid_battle` always builds exactly two leads; a debug
-  assertion on the team length would harden it.
-- **`get_or_init_profile` can insert a blank-named profile** if called for an identity with no `player`
-  row (the name backfill falls back to empty). In practice both PvP participants joined (so a profile
-  already exists), but a disconnected opponent path could create a `name = ""` ladder entry. Data-quality
-  only, not a crash.
-- **`record_pick`'s pick lookup reads a pre-insert snapshot + a manual `or` for the caller.** Correct for
-  exactly two participants; it would need rework if a battle ever had three choosers.
-
-## game-core robustness (latent)
-
-- **`BattleSide::active_ref` / `active_mut` index `team[active]` directly** and would panic on an
-  out-of-range `active` — a contract the server must uphold (e.g. `resolve_player_swap` relies on the
-  reducer validating the index, and a corrupt deserialized `BattleState` would also expose it). In an
-  otherwise panic-free pure crate, consider documenting the precondition more loudly or returning a
-  `Result`.
-- **`resolve_coop_turn` encodes an implicit "exactly 2 allies + 1 boss" contract.** It degrades
-  gracefully to one ally (a missing `team[1]` is treated as fainted) and ignores any 3rd team member or
-  multi-monster boss — fine for the current raid shape, but undocumented as a hard invariant.
-- **`load_fusions` does not reject an empty fusion list,** unlike every other content loader. Likely
-  intentional (fusions could be optional), but inconsistent.
-- **`level_for_xp` is an O(MAX) linear scan** (≤100 iterations) called per XP gain. Correct and
-  deterministic; a closed-form cube root would be O(1) if it ever shows on a profile (consistent with the
-  "optimize last" rule).
-- **Unused dev-dependencies** `rand` / `rand_chacha` in `game-core/Cargo.toml` — no test or source
-  references them (RNG is injected as a closure). Safe to remove or wire into a determinism test.
-
-## Frontend (latent, self-correcting)
-
-- **`committedDir` is not reset on a *diverging* reconcile** (`frontend/src/main.ts`). After the
-  predictor snaps to a different tile/facing than predicted while a key is held, the responsive
-  `setMove` re-issue can lag by one step (the sustained-hold branch recovers it). Deferred deliberately:
-  a precise fix needs `reconcile` to report divergence + a predictor test, and getting it wrong risks a
-  movement-prediction regression for a one-step latency edge.
-- **`CharacterView.snapTo()` is unused** — the own view only ever *slides* (`moveTo`), so even a large
-  diverging reconcile animates across the gap rather than snapping. Not a correctness bug (it converges);
-  the "snap on a hard reconcile" comment describes behavior never invoked.
-- **`TradeScreen.#respondChoice` is never pruned** when an offer is removed — the map grows across a long
-  session (stale keys are simply never read). Harmless.
-- **`Scene` has no teardown path** (`main.ts` discards the handle; the scene wires itself into the
-  ticker). Fine for a single-session POC; a leak if reconnect-without-reload is ever added.
-
-## Performance / scaling notes
-
-- **`baitCount()` / `foodItems()` scan all owned item stacks per call** and run on every battle/box
-  re-render. Negligible at POC scale (RLS-scoped to the owner) but O(items) behind a getter callers treat
-  as cheap.
-- **`movement_tick` and subscriptions are O(all rows)** — see [ARCHITECTURE.md → Scaling
-  path](../ARCHITECTURE.md#scaling-path) for the per-zone-tick / spatial-subscription levers (schema is
-  ready except a `character.map_id` index).
+- **`heal_party` is a free, untimed full heal.** It's an explicit placeholder for a Pokémon-Center-style
+  healing spot; the *proper* resolution is that content (a location + cost/cooldown), which is a design
+  decision, not a code fix. Until then it's intentionally permissive. *(In-battle healing is already
+  rejected, so this does not affect the in-battle weaken-to-recruit loop — only between-battle attrition.)*
+- **`level_for_xp` is an O(level) linear scan** (≤100 iterations) — correct and deterministic; per the
+  project's "optimize last, measure first" rule, not worth a closed-form rewrite without a profile
+  showing it on a hot path.
+- **`baitCount()`/`foodItems()` scan all owned stacks per call**, and **`movement_tick` + subscriptions
+  are O(all rows).** Negligible at the target scale (tens–low-hundreds of players); the scaling levers
+  (per-zone tick, spatial subscriptions, a `character.map_id` index) are deferred to a measurement, per
+  [ARCHITECTURE.md → Scaling path](../ARCHITECTURE.md#scaling-path).
+- **`Scene` has no teardown path** (the handle is discarded; it self-wires into the ticker). Fine for a
+  single-session POC; would matter only if reconnect-without-reload is added (YAGNI).
