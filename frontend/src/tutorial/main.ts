@@ -131,6 +131,13 @@ function showChapter(index: number): void {
     pre.appendChild(btn);
   });
 
+  // External links (citations, the References list, "further reading") open in a new tab so a reader
+  // following a source doesn't lose their place in the tutorial.
+  article.querySelectorAll<HTMLAnchorElement>('a[href^="http"]').forEach((a) => {
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+  });
+
   // Highlight the active chapter in the sidebar and render its H2 sub-sections beneath it.
   tocList.querySelectorAll('li').forEach((li) => {
     const link = li.querySelector<HTMLAnchorElement>('a[data-chapter]');

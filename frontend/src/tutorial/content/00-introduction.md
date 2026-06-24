@@ -67,7 +67,8 @@ All the *rules* of the game — how a step resolves, how damage is calculated, h
 catch odds work — live in one pure Rust library called `game-core`. "Pure" means: give it the same
 inputs and it always returns the same output, with no side effects, no reading the clock, no random
 numbers it conjured itself. Around that pure core sits the "imperative shell": the database, the
-network, the renderer — the messy parts that talk to the outside world.
+network, the renderer — the messy parts that talk to the outside world. This split has a
+name — *functional core, imperative shell*<sup>[1](https://www.destroyallsoftware.com/screencasts/catalog/functional-core-imperative-shell)</sup>.
 
 ### Bet 3 — Determinism is what makes it feel fast
 
@@ -77,8 +78,9 @@ into WebAssembly that runs in the browser. When you press a key, the browser run
 right now* and moves your character immediately — then the server's official answer arrives a moment
 later. Because both ran identical code on identical inputs, the answers **match**, and you never see a
 correction. This is called **client-side prediction**, and determinism is the property that makes it
-possible. If the client and server logic could ever disagree, prediction would constantly "rubber-
-band" and the game would feel broken.
+possible.<sup>[2](https://www.gabrielgambetta.com/client-side-prediction-server-reconciliation.html)</sup>
+If the client and server logic could ever disagree, prediction would constantly "rubber-band" and the
+game would feel broken.
 
 > **The golden rule, stated once:** every game rule lives exactly once, in `game-core`. We never
 > reimplement a rule in TypeScript or in the server. If you ever feel tempted to, stop — that
@@ -88,10 +90,10 @@ band" and the game would feel broken.
 
 | Layer | Tool | Why this one |
 |---|---|---|
-| Shared rules | **Rust** | Compiles to both native (server) and WASM (browser) from one codebase. Strong types let us "make illegal states unrepresentable." |
-| Browser prediction | **WebAssembly** (via `wasm-pack`) | Runs the *same* Rust source rule in the browser. The compiled artifacts differ (WASM vs native), but for our integer-only logic they produce **identical results** — which is the whole point. |
-| Backend | **SpacetimeDB 2.6** | A database where your game logic (Rust "reducers") runs *inside* the database, next to the data, in transactions. Clients subscribe to tables and get live updates. It also provides a row-level-security mechanism (still experimental in this version — more on that later). |
-| Frontend | **PixiJS v8** + **TypeScript** | A fast 2D renderer (WebGL, with a WebGPU path in v8); TypeScript keeps the glue code honest. |
+| Shared rules | **Rust**<sup>[3](https://www.rust-lang.org/)</sup> | Compiles to both native (server) and WASM (browser) from one codebase. Strong types let us "make illegal states unrepresentable." |
+| Browser prediction | **WebAssembly**<sup>[4](https://developer.mozilla.org/en-US/docs/WebAssembly)</sup> (via `wasm-pack`) | Runs the *same* Rust source rule in the browser. The compiled artifacts differ (WASM vs native), but for our integer-only logic they produce **identical results** — which is the whole point. |
+| Backend | **SpacetimeDB 2.6**<sup>[5](https://spacetimedb.com/docs/intro/key-architecture/)</sup> | A database where your game logic (Rust "reducers") runs *inside* the database, next to the data, in transactions. Clients subscribe to tables and get live updates.<sup>[6](https://spacetimedb.com/docs/subscriptions/semantics/)</sup> It also provides a row-level-security mechanism (still experimental in this version — more on that later). |
+| Frontend | **PixiJS v8**<sup>[7](https://pixijs.com/)</sup> + **TypeScript** | A fast 2D renderer (WebGL, with a WebGPU path in v8); TypeScript keeps the glue code honest. |
 
 If some of those words are unfamiliar (reducer? subscription? WASM?), good — we define each one the
 first time it matters. You do not need to understand the whole table yet.
@@ -126,5 +128,22 @@ Each milestone chapter has the same shape, so you always know where to look:
 - **Alternatives & the honest verdict** — what else you could do, and whether you should.
 - **Checkpoint** — how to know it works before moving on.
 
+And one more convention, borrowed from Wikipedia: factual and technical claims carry a superscript
+citation like <sup>[1](https://www.destroyallsoftware.com/screencasts/catalog/functional-core-imperative-shell)</sup>
+that links to authoritative documentation, and every chapter ends with a numbered **References** list
+of those sources. Claims about *this project's own code* are "cited" by the file path next to them;
+the citations are for the outside facts — the SpacetimeDB, WebAssembly, Rust, and game-math claims a
+skeptical reader should be able to check at the source.
+
 Ready? Let's start with an empty folder and a few decisions that will save us from a world of pain
 later.
+
+## References
+
+1. Gary Bernhardt — ["Functional Core, Imperative Shell"](https://www.destroyallsoftware.com/screencasts/catalog/functional-core-imperative-shell), Destroy All Software. *(Bet 2: the pure-core / effectful-shell split.)*
+2. Gabriel Gambetta — ["Client-Side Prediction and Server Reconciliation"](https://www.gabrielgambetta.com/client-side-prediction-server-reconciliation.html). *(Bet 3: the prediction technique this whole architecture rests on.)*
+3. ["Rust Programming Language"](https://www.rust-lang.org/) — official site. *(The shared-rules language; compiles to native and WASM.)*
+4. MDN Web Docs — ["WebAssembly"](https://developer.mozilla.org/en-US/docs/WebAssembly). *(The browser-prediction runtime.)*
+5. SpacetimeDB Docs — ["Key Architecture"](https://spacetimedb.com/docs/intro/key-architecture/). *(Logic-in-the-database model.)*
+6. SpacetimeDB Docs — ["Subscription Semantics"](https://spacetimedb.com/docs/subscriptions/semantics/). *(Clients subscribe and get pushed live updates.)*
+7. ["PixiJS"](https://pixijs.com/) — official site (v8). *(The 2D WebGL/WebGPU renderer.)*

@@ -11,9 +11,9 @@ phase "contracts first.")
 ## The shape of the repository
 
 We're building four components — three Rust crates plus a TypeScript frontend — and the three Rust
-crates share code, so we put them in a **Cargo workspace**: Rust's way of keeping several crates
-(packages) in one repo with one lockfile and one `cargo build`. (The frontend isn't a Rust crate, so
-it lives alongside the workspace, not inside it.)
+crates share code, so we put them in a **Cargo workspace**<sup>[1](https://doc.rust-lang.org/cargo/reference/workspaces.html)</sup>:
+Rust's way of keeping several crates (packages) in one repo with one lockfile and one `cargo build`.
+(The frontend isn't a Rust crate, so it lives alongside the workspace, not inside it.)
 
 ```text
 pokemon-mmo/
@@ -75,8 +75,9 @@ targets = ["wasm32-unknown-unknown"]
 
 ### How it works
 
-`rustup` reads this file and automatically uses Rust **1.96.0** in this directory, installing the
-`rustfmt` and `clippy` tools and the `wasm32-unknown-unknown` compile target (the one WASM needs).
+`rustup` reads this file<sup>[2](https://rust-lang.github.io/rustup/overrides.html)</sup> and
+automatically uses Rust **1.96.0** in this directory, installing the `rustfmt` and `clippy` tools and
+the `wasm32-unknown-unknown` compile target (the one WASM needs).
 
 **Why pin instead of using `stable`?** Because "stable" is a moving target. If your laptop has a newer
 stable than the CI server, a build can pass for you and fail in CI (or vice-versa) over a lint that
@@ -116,7 +117,8 @@ Recall Bet 3 from the intro: prediction only works if the client and server run 
 
 Both are easy to write by accident, deep inside a call stack, months from now. So instead of *trusting
 ourselves* to never do it, we make the compiler-adjacent tool **clippy** reject those exact function
-calls. CI runs `cargo clippy -- -D warnings` ("treat every warning as an error"), so a wall-clock read
+calls — that's what the `disallowed-methods` config does.<sup>[3](https://doc.rust-lang.org/clippy/lint_configuration.html)</sup>
+CI runs `cargo clippy -- -D warnings` ("treat every warning as an error"), so a wall-clock read
 doesn't get a stern code-review comment — it **fails the build**. The rule can't rot.
 
 This is a theme you'll see throughout the project, worth naming now: **prefer mechanical enforcement
@@ -164,3 +166,9 @@ Milestone 1, `cargo build` will compile the workspace and `cargo clippy` will pa
 fail loudly if you'd reached for a clock).
 
 Next, we give the skeleton a brain: the pure rules in `game-core`.
+
+## References
+
+1. The Cargo Book — ["Workspaces"](https://doc.rust-lang.org/cargo/reference/workspaces.html). *(The multi-crate workspace and `[workspace.dependencies]`.)*
+2. The rustup Book — ["Overrides"](https://rust-lang.github.io/rustup/overrides.html). *(How `rust-toolchain.toml` pins the toolchain per-directory.)*
+3. Clippy Documentation — ["Lint Configuration"](https://doc.rust-lang.org/clippy/lint_configuration.html). *(The `disallowed-methods` setting used as the determinism guard.)*

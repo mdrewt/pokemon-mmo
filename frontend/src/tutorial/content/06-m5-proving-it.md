@@ -35,7 +35,7 @@ During development, `spacetime dev` watches and re-runs this for you.
 
 ## The two-window test
 
-The headline guarantee — *two players see a consistent world* — gets a [Playwright](https://playwright.dev)
+The headline guarantee — *two players see a consistent world* — gets a Playwright<sup>[1](https://playwright.dev/)</sup>
 test that drives **two real browser windows** against one authoritative server. Its header lays out the
 coverage:
 
@@ -72,7 +72,7 @@ guarantee, this turns red.
 
 ## Continuous Integration
 
-CI runs on every pull request and every push to `main`, in two jobs.
+CI runs on every pull request and every push to `main`, in two jobs (GitHub Actions<sup>[3](https://docs.github.com/en/actions)</sup>).
 
 ### Job 1 — Rust
 
@@ -87,9 +87,9 @@ CI runs on every pull request and every push to `main`, in two jobs.
   run: wasm-pack build client-wasm --target bundler
 ```
 
-Note `cargo clippy ... -- -D warnings`: **every warning is an error.** This is what gives the
-`clippy.toml` determinism guard from Milestone 0 its teeth — a wall-clock read isn't a warning to
-ignore, it fails CI. The job then builds the WASM and **uploads it as an artifact** so the frontend job
+Note `cargo clippy ... -- -D warnings`: **every warning is an error.**<sup>[4](https://doc.rust-lang.org/clippy/usage.html)</sup>
+This is what gives the `clippy.toml` determinism guard from Milestone 0 its teeth — a wall-clock read
+isn't a warning to ignore, it fails CI. The job then builds the WASM and **uploads it as an artifact** so the frontend job
 can reuse it instead of rebuilding Rust.
 
 ### Job 2 — Frontend
@@ -130,9 +130,9 @@ can actually run.
 ## Alternatives & the honest verdict
 
 - **A single-window unit test of the predictor instead of a two-window e2e.** The project has *both*:
-  fast `vitest` unit tests for the predictor's reconcile logic (which run in CI), and the heavyweight
-  two-window test (local). **Verdict: you want both layers.** Unit tests catch logic bugs cheaply and
-  in CI; the e2e catches integration/timing bugs the unit tests can't see.
+  fast `vitest`<sup>[2](https://vitest.dev/)</sup> unit tests for the predictor's reconcile logic (which
+  run in CI), and the heavyweight two-window test (local). **Verdict: you want both layers.** Unit tests
+  catch logic bugs cheaply and in CI; the e2e catches integration/timing bugs the unit tests can't see.
 - **Installing `spacetime` in CI to run the e2e there.** Possible, and arguably better — it'd make the
   strongest test a merge gate. The project chose not to, to keep CI simple and fast. **Verdict: this is
   a fair place to disagree; running the e2e in CI would genuinely raise the safety bar at the cost of
@@ -146,3 +146,10 @@ With a local node running, `npm run test:e2e` drives two windows and they agree 
 branch and CI's two jobs go green. **The POC is done:** a server-authoritative, predicted, reconciled,
 *tested* multiplayer foundation. Everything from here is building a game on top of a foundation you can
 trust. Time to add monsters.
+
+## References
+
+1. ["Playwright"](https://playwright.dev/) — official site. *(The two-window end-to-end browser test runner.)*
+2. ["Vitest"](https://vitest.dev/) — official site. *(The fast unit-test runner for the predictor/store logic.)*
+3. GitHub Docs — ["GitHub Actions"](https://docs.github.com/en/actions). *(The CI workflow that runs the Rust and frontend jobs.)*
+4. Clippy Documentation — ["Usage"](https://doc.rust-lang.org/clippy/usage.html). *(`-D warnings` turns every lint into a build failure.)*

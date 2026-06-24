@@ -18,10 +18,11 @@ evolutions: [
 ],
 ```
 
-A species can evolve into several targets, each gated by a minimum level and bond. An empty list means
-a final form; multiple entries are **branches the player chooses among** — and note the second branch
-here needs `min_bond: 120`, so *how you raised the monster* (Milestone 9's care) decides which
-evolutions it can even reach. Same species, different upbringing, different destiny.
+A species can evolve into several targets, each gated by a minimum level and bond — the genre's
+condition-gated, sometimes-branching evolution<sup>[1](https://bulbapedia.bulbagarden.net/wiki/Evolution)</sup>.
+An empty list means a final form; multiple entries are **branches the player chooses among** — and note
+the second branch here needs `min_bond: 120`, so *how you raised the monster* (Milestone 9's care)
+decides which evolutions it can even reach. Same species, different upbringing, different destiny.
 
 The eligibility check is a pure `game-core` function, `eligible_evolutions(species, level, bond)`,
 which returns the target ids the monster currently qualifies for. The server stores that list on the
@@ -94,8 +95,9 @@ pub fn fuse_offspring(offspring: SpeciesId, a: &MonsterInstance, b: &MonsterInst
 ```
 
 So a fused monster **out-genes either parent** (each gene is the max of the two) — the breed-for-stats
-payoff — but starts fresh at level 1 with no training, so it's a real investment to re-raise. That's
-the deliberate progression sink.
+payoff, in the spirit of gene-inheritance breeding systems<sup>[2](https://bulbapedia.bulbagarden.net/wiki/Breeding)</sup> —
+but starts fresh at level 1 with no training, so it's a real investment to re-raise. That's the
+deliberate progression sink.
 
 ## The reducer: an atomic, irreversible operation
 
@@ -177,3 +179,8 @@ drawn from `evolves_to`; evolving keeps its name and genes but bumps its stats. 
 monsters and get an offspring that out-genes both parents, at level 1, with the parents consumed
 atomically. Try to fuse an incompatible pair and it's cleanly rejected. The single-player game is
 *complete*: find, tame, raise, battle, evolve, fuse. Now we make it multiplayer for real.
+
+## References
+
+1. Bulbapedia — ["Evolution"](https://bulbapedia.bulbagarden.net/wiki/Evolution). *(Condition-gated, sometimes-branching evolution — the model for `eligible_evolutions`.)*
+2. Bulbapedia — ["Breeding"](https://bulbapedia.bulbagarden.net/wiki/Breeding). *(Gene/IV inheritance — the inspiration for fusion taking the better gene per stat.)*

@@ -55,8 +55,9 @@ opponent_identity = :sender`), only to the participants, since it carries their 
 ## The type chart is data
 
 Effectiveness (Fire beats Nature, etc.) is content, seeded into a `type_relation` table, exactly like
-species. The client reads it to show "It's super effective!" hints — but that's a *lookup on shared
-data*, not a reimplemented rule. The authoritative damage number is always the server's.
+species. The client reads it to show "It's super effective!" hints<sup>[1](https://bulbapedia.bulbagarden.net/wiki/Type)</sup> —
+but that's a *lookup on shared data*, not a reimplemented rule. The authoritative damage number is
+always the server's.
 
 ## Resolving a turn
 
@@ -123,7 +124,9 @@ Discipline you don't strictly need yet, kept because it's cheap and future-proof
 A monster-tamer lives or dies on the dopamine of growth, so the win path surfaces it: an EXP bar in the
 box (with "N to next level"), a "gained N EXP / leveled up!" on victory, and a turn log of damage
 numbers and "X fainted!". Notice `xp_floor`/`xp_next` are **server-derived** columns on the monster row
-— the client shows a progress bar without ever knowing the XP curve. The curve, like every rule, lives
+— the client shows a progress bar without ever knowing the XP curve (a cubic `level³`, the "Medium
+Fast" growth group<sup>[2](https://bulbapedia.bulbagarden.net/wiki/Experience)</sup>). The curve, like
+every rule, lives
 once in `game-core`.
 
 ## Common pitfalls
@@ -161,3 +164,8 @@ skill: the server resolves the turn, the log shows the damage and effectiveness,
 win you see the XP gain. Lose all your HP and your monsters stay hurt afterward (until `heal_party`).
 Combat works, fully server-authoritative, with no prediction to debug. Next: finding monsters in the
 wild and taming them.
+
+## References
+
+1. Bulbapedia — ["Type"](https://bulbapedia.bulbagarden.net/wiki/Type). *(Type effectiveness — the model behind the data-driven `type_relation` chart.)*
+2. Bulbapedia — ["Experience"](https://bulbapedia.bulbagarden.net/wiki/Experience). *(Leveling curves; the "Medium Fast" group is exactly `level³`, which `xp_for_level` uses.)*

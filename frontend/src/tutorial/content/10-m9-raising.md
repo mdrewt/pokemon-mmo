@@ -16,8 +16,9 @@ accrues bond over time" anywhere to add.
 
 ## Training: food shapes the stat spread
 
-Training is an EV-like system: feeding a stat-food invests in that stat (within caps), and the
-investment flows through `derive_stats` so the monster's numbers visibly diverge. The pure rule:
+Training is an EV-like system<sup>[1](https://bulbapedia.bulbagarden.net/wiki/Effort_values)</sup>:
+feeding a stat-food invests in that stat (within caps), and the investment flows through `derive_stats`
+so the monster's numbers visibly diverge. The pure rule:
 
 ```rust
 pub fn apply_training(mut training: Training, stat: Stat, amount: u16) -> Result<Training, String> {
@@ -39,7 +40,8 @@ pub fn apply_training(mut training: Training, stat: Stat, amount: u16) -> Result
 
 ### How it works
 
-- Two caps: a **per-stat** cap (252) and a **total** cap (510) across all stats — so you can't max
+- Two caps: a **per-stat** cap (252) and a **total** cap (510) across all stats — the exact Gen-3 EV
+  caps<sup>[1](https://bulbapedia.bulbagarden.net/wiki/Effort_values)</sup> — so you can't max
   everything; raising is about *choices and tradeoffs*.
 - Note the deliberate distinction between **rejecting** and **clamping**. If a stat is *already at its
   cap*, the function returns `Err` — so the reducer can tell the player "already fully trained" and
@@ -76,7 +78,8 @@ correct).
 
 ## Care: cooldown-gated bonding
 
-Bond grows through deliberate care, gated by a per-monster cooldown so it can't be spammed:
+Bond — our take on Pokémon's *friendship/happiness*<sup>[2](https://bulbapedia.bulbagarden.net/wiki/Friendship)</sup> —
+grows through deliberate care, gated by a per-monster cooldown so it can't be spammed:
 
 ```rust
 #[spacetimedb::reducer]
@@ -141,3 +144,8 @@ feeding until it rejects with "already fully trained" (and doesn't consume the f
 monster and its bond rises; try again immediately and it tells you to wait. Two same-species monsters,
 raised differently, now have visibly different stat spreads. Raising shapes growth — and high bond is
 about to unlock something. Next: evolution and fusion.
+
+## References
+
+1. Bulbapedia — ["Effort values"](https://bulbapedia.bulbagarden.net/wiki/Effort_values). *(The EV system and its 252-per-stat / 510-total caps that `apply_training` enforces.)*
+2. Bulbapedia — ["Friendship"](https://bulbapedia.bulbagarden.net/wiki/Friendship). *(The happiness/bond stat that grows with care and gates some evolutions.)*

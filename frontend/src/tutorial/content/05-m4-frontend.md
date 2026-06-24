@@ -14,7 +14,7 @@ marshal → render → predict → reconcile → route.**
 ## Connect and subscribe
 
 The frontend opens a connection to SpacetimeDB and **subscribes** to the tables it needs. A
-subscription is a live query: you get every current row, and every future change, pushed to you.
+subscription is a live query: you get every current row, and every future change, pushed to you.<sup>[1](https://spacetimedb.com/docs/subscriptions/semantics/)</sup>
 
 ```typescript
 const conn = DbConnection.builder()
@@ -62,7 +62,8 @@ Two design choices worth calling out:
   of duplicating. (A plain array would grow a second copy of every monster on every reconnect.)
 - **A `StoredCharacter` records `receivedAt`** — the local `performance.now()` when the row arrived.
   We use that to smoothly interpolate *other* players' movement without needing the client and server
-  clocks to agree. (We never sync clocks; we rebase to local time. More on that next.)
+  clocks to agree<sup>[2](https://www.gabrielgambetta.com/entity-interpolation.html)</sup>. (We never
+  sync clocks; we rebase to local time. More on that next.)
 
 Consumers (the renderer, the predictor) **subscribe to the store's change events**; they read it, they
 never write it. State flows one way: server → store → render.
@@ -124,7 +125,8 @@ the boundary.
 ## Rendering: pool sprites, never recreate
 
 Rendering is the hot path — it runs every frame. The cardinal rule of PixiJS performance is **reuse
-display objects; mutate them; never recreate them per frame.** Each character gets one `CharacterView`
+display objects; mutate them; never recreate them per frame.**<sup>[3](https://pixijs.com/8.x/guides/concepts/performance-tips)</sup>
+Each character gets one `CharacterView`
 that owns one `AnimatedSprite`, created once:
 
 ```typescript
@@ -234,7 +236,8 @@ later, confirm it.
 ## Reconciliation: how prediction stays honest
 
 Prediction is a *guess*. Reconciliation is how we correct the guess against truth without the player
-ever seeing a jolt — when the guess was right, which is almost always. Here's the predictor's
+ever seeing a jolt — when the guess was right, which is almost always.<sup>[4](https://www.gabrielgambetta.com/client-side-prediction-server-reconciliation.html)</sup>
+Here's the predictor's
 `reconcile`, which you'll recognize from `game-core`'s determinism guarantee:
 
 ```typescript
@@ -337,3 +340,10 @@ no perceptible lag — while a second browser window shows you moving a beat lat
 update). Walk into a wall: you bump and turn, exactly as `apply_move` decreed, on both screens. You now
 have a real, responsive, server-authoritative multiplayer prototype. Next we *prove* it stays in sync,
 automatically.
+
+## References
+
+1. SpacetimeDB Docs — ["Subscription Semantics"](https://spacetimedb.com/docs/subscriptions/semantics/). *(The subscribe-once, server-pushes-diffs model.)*
+2. Gabriel Gambetta — ["Entity Interpolation"](https://www.gabrielgambetta.com/entity-interpolation.html). *(Smoothly interpolating *other* entities without clock sync.)*
+3. PixiJS — ["Performance Tips"](https://pixijs.com/8.x/guides/concepts/performance-tips) (v8). *(Minimizing per-frame work, draw calls, and resource churn — why we pool and mutate sprites.)*
+4. Gabriel Gambetta — ["Client-Side Prediction and Server Reconciliation"](https://www.gabrielgambetta.com/client-side-prediction-server-reconciliation.html). *(The reset-and-replay reconciliation our `Predictor` implements.)*

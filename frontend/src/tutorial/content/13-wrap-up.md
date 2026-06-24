@@ -52,13 +52,14 @@ the craft.
 
 ## A note on *this page's* own trade-offs
 
-In the spirit of practicing what we preach: this tutorial is a separate Vite multi-page entry
-(`tutorial.html`) rendering Markdown with `marked` + `highlight.js`. We rejected putting it *inside* the
-Pixi canvas (rendering long-form text in WebGL would be reinventing a browser) and rejected hand-written
-HTML (Markdown-as-data is far easier to keep accurate). The cost is three small dependencies and a
-second build entry — and we trimmed highlight.js from its ~190-language full build down to just the
-handful of grammars these chapters actually need, because measuring the bundle showed the full build
-dominating the route's payload (it dropped from ~1 MB to ~250 kB). Small decisions, same reasoning as
+In the spirit of practicing what we preach: this tutorial is a separate Vite multi-page entry<sup>[1](https://vite.dev/guide/build.html#multi-page-app)</sup>
+(`tutorial.html`) rendering Markdown with `marked`<sup>[2](https://marked.js.org/)</sup> +
+`highlight.js`<sup>[3](https://highlightjs.org/)</sup>. We rejected putting it *inside* the Pixi canvas
+(rendering long-form text in WebGL would be reinventing a browser) and rejected hand-written HTML
+(Markdown-as-data is far easier to keep accurate). The cost is three small dependencies and a second
+build entry — and we trimmed highlight.js from its ~190-language full build<sup>[4](https://github.com/highlightjs/highlight.js/blob/main/SUPPORTED_LANGUAGES.md)</sup>
+down to just the handful of grammars these chapters actually need, because measuring the bundle showed
+the full build dominating the route's payload (it dropped from ~1 MB to ~250 kB). Small decisions, same reasoning as
 everywhere else.
 
 ## Where to go from here
@@ -93,5 +94,12 @@ ideas. The same architecture (pure core, authoritative server, predicted client,
 generalizes far beyond monster-tamers.
 
 Close this tab, open an empty folder, and start with `cargo new`. You've got this.
+
+## References
+
+1. Vite — ["Building for Production: Multi-Page App"](https://vite.dev/guide/build.html#multi-page-app). *(The `rollupOptions.input` multi-entry setup this page uses.)*
+2. ["marked"](https://marked.js.org/) — official site. *(The Markdown→HTML renderer.)*
+3. ["highlight.js"](https://highlightjs.org/) — official site. *(Syntax highlighting for the code blocks.)*
+4. highlight.js — ["Supported Languages"](https://github.com/highlightjs/highlight.js/blob/main/SUPPORTED_LANGUAGES.md). *(The ~190-language full list we trim down from.)*
 
 *← Use the navigation to revisit any milestone. The game itself is one click away on the title screen.*

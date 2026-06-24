@@ -11,9 +11,10 @@ and **owner-scoped data**.
 ## Content is data, not code
 
 A monster *species* (Sproutling, Embercub) is a template: base stats, an elemental affinity, a
-learnset, evolution branches. We author all of that as **RON** files (Rusty Object Notation — like
-JSON, but it speaks Rust's structs and enums natively), embedded into the binary at compile time and
-parsed by a pure `game-core` function.
+learnset, evolution branches. We author all of that as **RON** files (Rusty Object Notation<sup>[1](https://github.com/ron-rs/ron)</sup> — like
+JSON, but it speaks Rust's structs and enums natively), embedded into the binary at compile time with
+`include_str!`<sup>[2](https://doc.rust-lang.org/std/macro.include_str.html)</sup> and parsed by a pure
+`game-core` function.
 
 Here's a slice of `game-core/content/species.ron`:
 
@@ -124,15 +125,17 @@ pub fn roll_individuality(next_u32: &mut dyn FnMut() -> u32) -> (Potential, Temp
 }
 ```
 
-Each gene is a number from `0` to `Potential::MAX` (31, IV-style), and the temperament is one of a
-fixed set of natures. The randomness is *consumed in a fixed order* (five genes, then temperament), so
+Each gene is a number from `0` to `Potential::MAX` (31, in the style of Pokémon's
+*individual values*<sup>[3](https://bulbapedia.bulbagarden.net/wiki/Individual_values)</sup>), and the
+temperament is one of a fixed set of natures<sup>[4](https://bulbapedia.bulbagarden.net/wiki/Nature)</sup>. The randomness is *consumed in a fixed order* (five genes, then temperament), so
 for a given sequence of numbers the result is fully determined — testable and reproducible. The server
 feeds it `ctx.rng()`; a test feeds it a fixed sequence.
 
 ### Stats are derived on the server, read on the client
 
 Final stats come from a pure formula, `derive_stats(species, potential, training, temperament, level)`.
-It's a classic integer formula (no floats, so it's deterministic) — for each stat:
+It's the classic integer formula from Pokémon's Generation III onward<sup>[5](https://bulbapedia.bulbagarden.net/wiki/Stat)</sup>
+(no floats, so it's deterministic) — for each stat:
 
 ```rust
 let common = (2 * base + iv + ev / 4) * lvl / 100;
@@ -199,9 +202,9 @@ visibility mode, completing the set:
 | `public` + RLS filter | `monster`, `battle`, `player_item` (items arrive in M8) | the owner (intended) |
 
 > **An honest caveat — RLS is experimental.** In SpacetimeDB 2.6, row-level security
-> (`client_visibility_filter`) is an *experimental* feature: you must opt into it, the official docs
-> warn the "API may change in future releases," and the version of the Rust bindings this project pins
-> even labels the filter as not yet fully enforced. So treat RLS as **defense-in-depth, not a hardened
+> (`client_visibility_filter`) is an *experimental* feature:<sup>[6](https://spacetimedb.com/docs/rls/)</sup>
+> you must opt into it, the official docs warn the "API may change in future releases," and the version
+> of the Rust bindings this project pins even labels the filter as not yet fully enforced. So treat RLS as **defense-in-depth, not a hardened
 > boundary** — verify it actually filters on *your* SpacetimeDB version before relying on it. When data
 > must *never* leak (a server secret), the unambiguous tool is a **private (non-`public`) table** like
 > `encounter`, which the client can't subscribe to at all. This project uses RLS for owner-scoped data
@@ -242,3 +245,12 @@ by you, with plausibly-rolled `potential` and a `temperament`. Join as a *second
 (via the subscription / introspection hook) that you do **not** receive the first player's monster
 rows — the RLS filter is working. In the box UI, your starter appears with its unique stat spread.
 You've laid the individuality foundation. Now let's make those monsters fight.
+
+## References
+
+1. RON — [ron-rs/ron](https://github.com/ron-rs/ron). *(The Rusty Object Notation content format.)*
+2. Rust Standard Library — [`include_str!`](https://doc.rust-lang.org/std/macro.include_str.html). *(Embedding the content files at compile time.)*
+3. Bulbapedia — ["Individual values"](https://bulbapedia.bulbagarden.net/wiki/Individual_values). *(The 0–31 per-stat "genes" this `Potential` mirrors.)*
+4. Bulbapedia — ["Nature"](https://bulbapedia.bulbagarden.net/wiki/Nature). *(Natures nudging a stat pair — the model behind `Temperament`.)*
+5. Bulbapedia — ["Stat"](https://bulbapedia.bulbagarden.net/wiki/Stat). *(The Generation III+ stat formula `derive_stats` implements.)*
+6. SpacetimeDB Docs — ["Row Level Security"](https://spacetimedb.com/docs/rls/). *(`client_visibility_filter`; the experimental status the caveat is about.)*
