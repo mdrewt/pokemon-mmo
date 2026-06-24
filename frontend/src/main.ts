@@ -17,6 +17,7 @@ import { ScreenManager } from './ui/screen';
 import { BoxScreen } from './ui/box';
 import { BattleScreen } from './ui/battle';
 import { TradeScreen } from './ui/trade';
+import { ChallengeScreen } from './ui/challenge';
 import { characterToPredictedBaseline, moveQueueToWasm, wasmToSdkMoveInput } from './convert';
 import { installIntrospection } from './test/introspect';
 import type { WasmFacing } from './wasm';
@@ -109,13 +110,16 @@ async function bootstrap(): Promise<void> {
   const box = new BoxScreen(net);
   const battle = new BattleScreen(net);
   const trade = new TradeScreen(net);
+  const challenge = new ChallengeScreen(net);
   screen.onChange((s) => {
     box.hide();
     battle.hide();
     trade.hide();
+    challenge.hide();
     if (s === 'box') box.show();
     else if (s === 'battle') battle.show();
     else if (s === 'trade') trade.show();
+    else if (s === 'challenge') challenge.show();
     if (s !== 'overworld') {
       if (predictor) net.clearQueue(predictor.clearQueue());
       committedDir = null;
@@ -131,7 +135,7 @@ async function bootstrap(): Promise<void> {
 
   // A small always-visible controls hint so the overworld actions are discoverable.
   const hint = document.createElement('div');
-  hint.textContent = '[F] Fight   ·   [B] Box   ·   [T] Trade   ·   [H] Heal';
+  hint.textContent = '[F] Fight   ·   [C] Battle player   ·   [B] Box   ·   [T] Trade   ·   [H] Heal';
   hint.style.cssText =
     'position:fixed;left:12px;bottom:12px;padding:6px 10px;border-radius:6px;background:rgba(10,12,20,0.7);' +
     'color:#cfd6e6;font:12px system-ui,sans-serif;z-index:800;pointer-events:none;';
@@ -155,12 +159,18 @@ async function bootstrap(): Promise<void> {
       const stop = input.takeClear();
       const toggleBox = input.takeToggleBox();
       const toggleTrade = input.takeToggleTrade();
+      const toggleChallenge = input.takeToggleChallenge();
       input.takeStartBattle();
       input.takeHeal();
       input.takeJump();
       if (overlay === 'battle') {
         if (stop) net.closeBattle(); // flee; skill/recruit/swap come from the overlay's own buttons
-      } else if (stop || (overlay === 'box' && toggleBox) || (overlay === 'trade' && toggleTrade)) {
+      } else if (
+        stop ||
+        (overlay === 'box' && toggleBox) ||
+        (overlay === 'trade' && toggleTrade) ||
+        (overlay === 'challenge' && toggleChallenge)
+      ) {
         screen.set('overworld');
       }
       hud.update();
@@ -195,9 +205,11 @@ async function bootstrap(): Promise<void> {
       const healPressed = input.takeHeal();
       const jumpPressed = input.takeJump();
       const toggleTrade = input.takeToggleTrade();
+      const toggleChallenge = input.takeToggleChallenge();
       // Overlays are handled before the movement gates above, so by here the screen is the overworld.
       if (toggleBox) screen.set('box');
       if (toggleTrade) screen.set('trade');
+      if (toggleChallenge) screen.set('challenge');
       if (healPressed) net.healParty();
       if (startBattlePressed && net.battle() === undefined) net.startBattle();
       const room = stored.row.moveQueue.length + predictor.pendingCount < cap;

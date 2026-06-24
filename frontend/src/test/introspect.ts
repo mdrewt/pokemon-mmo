@@ -68,8 +68,14 @@ export interface GameSnapshot {
     toMonsterId: string | null;
     status: string;
   }[];
+  /** Pending PvP challenges this client is party to (M11.2), for challenge-flow assertions. */
+  challenges: { id: string; fromHex: string; toHex: string }[];
   /** The active battle, or null. */
   battle: {
+    /** True for a PvP battle (a real opponent), false for a PvE wild encounter. */
+    isPvp: boolean;
+    /** Whether this client has queued its action for the current PvP turn (waiting for the opponent). */
+    iSubmitted: boolean;
     outcome: string;
     turn: number;
     playerHp: number;
@@ -160,12 +166,19 @@ export function installIntrospection(
         toMonsterId: t.toCard ? t.toCard.monsterId.toString() : null,
         status: t.status.tag,
       })),
+      challenges: net.battleChallenges().map((c) => ({
+        id: c.id.toString(),
+        fromHex: c.fromIdentity.toHexString(),
+        toHex: c.toIdentity.toHexString(),
+      })),
       battle: (() => {
         const b = net.battle();
         if (!b) return null;
         const p = b.state.player.team[b.state.player.active];
         const e = b.state.enemy.team[b.state.enemy.active];
         return {
+          isPvp: b.playerIdentity.toHexString() !== b.opponentIdentity.toHexString(),
+          iSubmitted: net.hasQueuedAction(b.battleId),
           outcome: b.state.outcome.tag,
           turn: b.state.turn,
           playerHp: p?.currentHp ?? 0,

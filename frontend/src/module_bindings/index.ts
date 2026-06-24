@@ -34,12 +34,15 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AcceptChallengeReducer from "./accept_challenge_reducer";
 import AttemptRecruitReducer from "./attempt_recruit_reducer";
 import CancelTradeReducer from "./cancel_trade_reducer";
 import CareForMonsterReducer from "./care_for_monster_reducer";
+import ChallengePlayerReducer from "./challenge_player_reducer";
 import ClearQueueReducer from "./clear_queue_reducer";
 import CloseBattleReducer from "./close_battle_reducer";
 import ConfirmTradeReducer from "./confirm_trade_reducer";
+import DeclineChallengeReducer from "./decline_challenge_reducer";
 import EnqueueMoveReducer from "./enqueue_move_reducer";
 import EvolveMonsterReducer from "./evolve_monster_reducer";
 import FuseMonstersReducer from "./fuse_monsters_reducer";
@@ -59,6 +62,8 @@ import TrainMonsterReducer from "./train_monster_reducer";
 
 // Import all table schema definitions
 import BattleRow from "./battle_table";
+import BattleActionRow from "./battle_action_table";
+import BattleChallengeRow from "./battle_challenge_table";
 import CharacterRow from "./character_table";
 import ConfigRow from "./config_table";
 import FusionRow from "./fusion_table";
@@ -82,6 +87,9 @@ const tablesSchema = __schema({
       { accessor: 'battle_id', name: 'battle_battle_id_idx_btree', algorithm: 'btree', columns: [
         'battleId',
       ] },
+      { accessor: 'opponent_identity', name: 'battle_opponent_identity_idx_btree', algorithm: 'btree', columns: [
+        'opponentIdentity',
+      ] },
       { accessor: 'player_identity', name: 'battle_player_identity_idx_btree', algorithm: 'btree', columns: [
         'playerIdentity',
       ] },
@@ -90,6 +98,37 @@ const tablesSchema = __schema({
       { name: 'battle_battle_id_key', constraint: 'unique', columns: ['battleId'] },
     ],
   }, BattleRow),
+  battle_action: __table({
+    name: 'battle_action',
+    indexes: [
+      { accessor: 'battle_id', name: 'battle_action_battle_id_idx_btree', algorithm: 'btree', columns: [
+        'battleId',
+      ] },
+      { accessor: 'id', name: 'battle_action_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'battle_action_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, BattleActionRow),
+  battle_challenge: __table({
+    name: 'battle_challenge',
+    indexes: [
+      { accessor: 'from_identity', name: 'battle_challenge_from_identity_idx_btree', algorithm: 'btree', columns: [
+        'fromIdentity',
+      ] },
+      { accessor: 'id', name: 'battle_challenge_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'to_identity', name: 'battle_challenge_to_identity_idx_btree', algorithm: 'btree', columns: [
+        'toIdentity',
+      ] },
+    ],
+    constraints: [
+      { name: 'battle_challenge_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, BattleChallengeRow),
   character: __table({
     name: 'character',
     indexes: [
@@ -241,12 +280,15 @@ const tablesSchema = __schema({
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("accept_challenge", AcceptChallengeReducer),
   __reducerSchema("attempt_recruit", AttemptRecruitReducer),
   __reducerSchema("cancel_trade", CancelTradeReducer),
   __reducerSchema("care_for_monster", CareForMonsterReducer),
+  __reducerSchema("challenge_player", ChallengePlayerReducer),
   __reducerSchema("clear_queue", ClearQueueReducer),
   __reducerSchema("close_battle", CloseBattleReducer),
   __reducerSchema("confirm_trade", ConfirmTradeReducer),
+  __reducerSchema("decline_challenge", DeclineChallengeReducer),
   __reducerSchema("enqueue_move", EnqueueMoveReducer),
   __reducerSchema("evolve_monster", EvolveMonsterReducer),
   __reducerSchema("fuse_monsters", FuseMonstersReducer),

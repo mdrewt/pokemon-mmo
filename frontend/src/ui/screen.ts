@@ -3,7 +3,7 @@
 // deliberately a plain enum + listeners — no FSM library (KISS). Added in M6 before the box/battle
 // UIs multiply.
 
-export type Screen = 'overworld' | 'box' | 'battle' | 'trade' | 'menu';
+export type Screen = 'overworld' | 'box' | 'battle' | 'trade' | 'challenge' | 'menu';
 
 export class ScreenManager {
   #current: Screen = 'overworld';

@@ -7,6 +7,8 @@
 import { DbConnection, type EventContext, type ErrorContext } from '../module_bindings';
 import type {
   Battle,
+  BattleAction,
+  BattleChallenge,
   Character,
   Fusion,
   Item,
@@ -54,8 +56,12 @@ export interface NetHandle {
   fusionPartners(monster: Monster): { partner: Monster; offspringSpeciesId: number }[];
   /** Pending trade offers this client is party to (initiated or received). */
   tradeOffers(): TradeOffer[];
-  /** Other online players the caller can trade with (excludes self), name + identity. */
+  /** Other online players the caller can trade with / challenge (excludes self), name + identity. */
   tradablePlayers(): { identity: Identity; name: string }[];
+  /** Pending PvP challenges this client is party to (issued or received). */
+  battleChallenges(): BattleChallenge[];
+  /** Whether this client has already queued its action for the current PvP turn (waiting for opponent). */
+  hasQueuedAction(battleId: bigint): boolean;
 
   joinGame(name: string): void;
   enqueueMove(input: MoveInput, seq: bigint): void;
@@ -77,6 +83,9 @@ export interface NetHandle {
   respondTrade(offerId: bigint, offeredMonsterId: bigint): void;
   confirmTrade(offerId: bigint): void;
   cancelTrade(offerId: bigint): void;
+  challengePlayer(toIdentity: Identity): void;
+  acceptChallenge(challengeId: bigint): void;
+  declineChallenge(challengeId: bigint): void;
   disconnect(): void;
 }
 
@@ -165,6 +174,8 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
             'SELECT * FROM player_item',
             'SELECT * FROM fusion',
             'SELECT * FROM trade_offer',
+            'SELECT * FROM battle_challenge',
+            'SELECT * FROM battle_action',
           ]);
       })
       .onConnectError((_ctx: ErrorContext, error: Error) => {
@@ -267,6 +278,20 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
       store.removeTradeOffer(row.id);
     });
 
+    conn.db.battle_challenge.onInsert((_ctx: EventContext, row: BattleChallenge) => {
+      store.upsertBattleChallenge(row);
+    });
+    conn.db.battle_challenge.onDelete((_ctx: EventContext, row: BattleChallenge) => {
+      store.removeBattleChallenge(row.id);
+    });
+
+    conn.db.battle_action.onInsert((_ctx: EventContext, row: BattleAction) => {
+      store.upsertBattleAction(row);
+    });
+    conn.db.battle_action.onDelete((_ctx: EventContext, row: BattleAction) => {
+      store.removeBattleAction(row.id);
+    });
+
     const ownPlayer = (): Player | undefined => {
       const hex = identity?.toHexString();
       return hex ? store.playerByIdentityHex(hex) : undefined;
@@ -337,6 +362,8 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
         return out;
       },
       tradeOffers: () => [...store.tradeOffers.values()],
+      battleChallenges: () => [...store.battleChallenges.values()],
+      hasQueuedAction: (battleId: bigint) => store.hasQueuedAction(battleId),
       tradablePlayers: () => {
         const hex = identity?.toHexString();
         return [...store.playersByIdentity.values()]
@@ -406,6 +433,15 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
       },
       cancelTrade: (offerId: bigint) => {
         call(conn.reducers.cancelTrade({ offerId }));
+      },
+      challengePlayer: (toIdentity: Identity) => {
+        call(conn.reducers.challengePlayer({ toIdentity }));
+      },
+      acceptChallenge: (challengeId: bigint) => {
+        call(conn.reducers.acceptChallenge({ challengeId }));
+      },
+      declineChallenge: (challengeId: bigint) => {
+        call(conn.reducers.declineChallenge({ challengeId }));
       },
       disconnect: () => conn.disconnect(),
     };

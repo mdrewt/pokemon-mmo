@@ -44,11 +44,13 @@ export type AttackEvent = __Infer<typeof AttackEvent>;
 export const Battle = __t.object("Battle", {
   battleId: __t.u64(),
   playerIdentity: __t.identity(),
+  opponentIdentity: __t.identity(),
   get state() {
     return BattleState;
   },
   enemyLevel: __t.u8(),
   partyMonsterIds: __t.array(__t.u64()),
+  opponentMonsterIds: __t.array(__t.u64()),
   get wildPotential() {
     return Potential;
   },
@@ -62,6 +64,22 @@ export const Battle = __t.object("Battle", {
   leveledUp: __t.bool(),
 });
 export type Battle = __Infer<typeof Battle>;
+
+export const BattleAction = __t.object("BattleAction", {
+  id: __t.u64(),
+  battleId: __t.u64(),
+  chooserIdentity: __t.identity(),
+  skillId: __t.u32(),
+});
+export type BattleAction = __Infer<typeof BattleAction>;
+
+export const BattleChallenge = __t.object("BattleChallenge", {
+  id: __t.u64(),
+  fromIdentity: __t.identity(),
+  toIdentity: __t.identity(),
+  createdAtMs: __t.i64(),
+});
+export type BattleChallenge = __Infer<typeof BattleChallenge>;
 
 // The tagged union or sum type for the algebraic type `BattleEvent`.
 export const BattleEvent = __t.enum("BattleEvent", {

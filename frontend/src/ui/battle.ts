@@ -68,30 +68,54 @@ export class BattleScreen {
     if (!battle) return;
 
     const { state } = battle;
-    const enemy = state.enemy.team[state.enemy.active];
-    const player = state.player.team[state.player.active];
-    if (!enemy || !player) return;
+    // Perspective: the challenge ACCEPTER is `state.enemy`, so render the VIEWER's own side at the
+    // bottom and the foe at the top regardless of which slot they occupy. For PvE the viewer is always
+    // the player side, so this is a no-op there.
+    const myHex = this.#net.identityHex();
+    const viewerIsPlayer = battle.playerIdentity.toHexString() === myHex;
+    const pvp = battle.playerIdentity.toHexString() !== battle.opponentIdentity.toHexString();
+    const mySide = viewerIsPlayer ? state.player : state.enemy;
+    const foeSide = viewerIsPlayer ? state.enemy : state.player;
+    const me = mySide.team[mySide.active];
+    const foe = foeSide.team[foeSide.active];
+    if (!me || !foe) return;
 
-    // Enemy (top, right-aligned) and player (bottom, left-aligned) combatant panels.
-    this.#root.append(this.#combatant(enemy, true), this.#log(battle), this.#combatant(player, false));
+    // Foe (top, right-aligned) and the viewer's monster (bottom, left-aligned).
+    this.#root.append(
+      this.#combatant(foe, pvp ? '' : 'Wild ', true),
+      this.#log(battle, pvp, viewerIsPlayer),
+      this.#combatant(me, '', false),
+    );
 
     if (state.outcome.tag === 'Ongoing') {
-      this.#root.append(this.#skillMenu(player, state.player, enemy));
+      if (pvp && this.#net.hasQueuedAction(battle.battleId)) {
+        this.#root.append(this.#waiting());
+      } else {
+        this.#root.append(this.#skillMenu(me, mySide, foe, pvp));
+      }
     } else {
-      this.#root.append(this.#result(battle));
+      this.#root.append(this.#result(battle, pvp, viewerIsPlayer));
     }
   }
 
-  #combatant(m: BattleMonster, isEnemy: boolean): HTMLElement {
+  #combatant(m: BattleMonster, prefix: string, alignEnd: boolean): HTMLElement {
     const row = document.createElement('div');
     row.style.cssText = `display:flex;flex-direction:column;gap:4px;max-width:360px;${
-      isEnemy ? 'align-self:flex-end;text-align:right;' : 'align-self:flex-start;'
+      alignEnd ? 'align-self:flex-end;text-align:right;' : 'align-self:flex-start;'
     }`;
     const title = document.createElement('div');
-    title.textContent = `${isEnemy ? 'Wild ' : ''}${this.#speciesName(m.speciesId)}  Lv ${m.level}`;
+    title.textContent = `${prefix}${this.#speciesName(m.speciesId)}  Lv ${m.level}`;
     title.style.cssText = 'font-weight:600;font-size:16px;';
     row.append(title, this.#hpBar(m));
     return row;
+  }
+
+  #waiting(): HTMLElement {
+    const el = document.createElement('div');
+    el.id = 'pvp-waiting';
+    el.textContent = 'Waiting for your opponent…';
+    el.style.cssText = 'align-self:center;margin-top:12px;opacity:0.85;font-style:italic;';
+    return el;
   }
 
   #hpBar(m: BattleMonster): HTMLElement {
@@ -111,7 +135,11 @@ export class BattleScreen {
     return wrap;
   }
 
-  #log(battle: NonNullable<ReturnType<NetHandle['battle']>>): HTMLElement {
+  #log(
+    battle: NonNullable<ReturnType<NetHandle['battle']>>,
+    pvp: boolean,
+    viewerIsPlayer: boolean,
+  ): HTMLElement {
     const el = document.createElement('div');
     el.style.cssText =
       'align-self:center;text-align:center;min-height:40px;display:flex;flex-direction:column;gap:2px;opacity:0.9;font-style:italic;';
@@ -119,15 +147,16 @@ export class BattleScreen {
     // without advancing the turn counter — gating on turn===0 would swallow it). With no events, show
     // the opening line ONLY at the true start (turn 0); later empty-event states — e.g. a successful
     // recruit, which clears last_events without advancing the turn — render blank, not a stale "appeared".
+    const opening = pvp
+      ? 'The battle begins!'
+      : `A wild ${this.#speciesName(
+          battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
+        )} appeared!`;
     const lines =
       battle.lastEvents.length > 0
-        ? battle.lastEvents.map((ev) => this.#eventLine(ev))
+        ? battle.lastEvents.map((ev) => this.#eventLine(ev, pvp, viewerIsPlayer))
         : battle.state.turn === 0
-          ? [
-              `A wild ${this.#speciesName(
-                battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
-              )} appeared!`,
-            ]
+          ? [opening]
           : [];
     for (const text of lines) {
       const line = document.createElement('div');
@@ -137,11 +166,18 @@ export class BattleScreen {
     return el;
   }
 
-  /** Render one turn event (an attack with its damage/effectiveness, or a faint) to a log line. */
-  #eventLine(ev: NonNullable<ReturnType<NetHandle['battle']>>['lastEvents'][number]): string {
+  /** Render one turn event to a log line, from the VIEWER's perspective (event flags are relative to
+   *  `state.player` = the challenger; flip them for the accepter). */
+  #eventLine(
+    ev: NonNullable<ReturnType<NetHandle['battle']>>['lastEvents'][number],
+    pvp: boolean,
+    viewerIsPlayer: boolean,
+  ): string {
+    const foeWord = pvp ? 'Your opponent' : 'The enemy';
     if (ev.tag === 'Attack') {
       const a = ev.value;
-      const who = a.byPlayer ? 'You' : 'The enemy';
+      const mine = a.byPlayer === viewerIsPlayer;
+      const who = mine ? 'You' : foeWord;
       const skill = this.#net.skill(a.skillId)?.name ?? 'a move';
       const eff =
         a.effectiveness.tag === 'SuperEffective'
@@ -163,10 +199,20 @@ export class BattleScreen {
     // Faint
     const f = ev.value;
     const name = this.#speciesName(f.speciesId);
-    return f.playerSide ? `Your ${name} fainted!` : `The wild ${name} fainted!`;
+    const mine = f.playerSide === viewerIsPlayer;
+    return mine
+      ? `Your ${name} fainted!`
+      : pvp
+        ? `The opposing ${name} fainted!`
+        : `The wild ${name} fainted!`;
   }
 
-  #skillMenu(player: BattleMonster, playerSide: BattleSide, enemy: BattleMonster): HTMLElement {
+  #skillMenu(
+    player: BattleMonster,
+    playerSide: BattleSide,
+    enemy: BattleMonster,
+    pvp: boolean,
+  ): HTMLElement {
     const menu = document.createElement('div');
     menu.style.cssText = 'align-self:center;display:flex;flex-direction:column;gap:8px;margin-top:8px;';
     const grid = document.createElement('div');
@@ -196,34 +242,37 @@ export class BattleScreen {
     }
     menu.append(grid);
 
-    // Action row: recruit with bait (if any, shown first as the better option), plain recruit, flee.
+    // Action row. Recruit + switch are PvE-only; PvP just lets you Flee (a forfeit).
     const actions = document.createElement('div');
     actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;';
 
-    const bait = this.#net.baitCount();
-    if (bait > 0) {
-      const baitBtn = this.#button(`Recruit + Bait (${bait})`);
-      baitBtn.dataset.recruit = 'bait';
-      baitBtn.onclick = () => this.#net.attemptRecruit(true);
-      actions.append(baitBtn);
+    if (!pvp) {
+      const bait = this.#net.baitCount();
+      if (bait > 0) {
+        const baitBtn = this.#button(`Recruit + Bait (${bait})`);
+        baitBtn.dataset.recruit = 'bait';
+        baitBtn.onclick = () => this.#net.attemptRecruit(true);
+        actions.append(baitBtn);
+      }
+      const recruit = this.#button('Recruit');
+      recruit.dataset.recruit = 'plain';
+      recruit.title = 'Lower its HP first for a better chance';
+      recruit.onclick = () => this.#net.attemptRecruit(false);
+      actions.append(recruit);
     }
 
-    const recruit = this.#button('Recruit');
-    recruit.dataset.recruit = 'plain';
-    recruit.title = 'Lower its HP first for a better chance';
-    recruit.onclick = () => this.#net.attemptRecruit(false);
-    actions.append(recruit);
-
-    const flee = this.#button('Flee');
+    const flee = this.#button(pvp ? 'Forfeit' : 'Flee');
     flee.onclick = () => this.#net.closeBattle();
     actions.append(flee);
 
     menu.append(actions);
 
-    // Switch row: any benched, still-conscious party member can be sent in (costs the turn).
-    const benched = playerSide.team
-      .map((m, i) => ({ m, i }))
-      .filter(({ m, i }) => i !== playerSide.active && m.currentHp > 0);
+    // Switch row (PvE only for now): any benched, still-conscious party member can be sent in.
+    const benched = pvp
+      ? []
+      : playerSide.team
+          .map((m, i) => ({ m, i }))
+          .filter(({ m, i }) => i !== playerSide.active && m.currentHp > 0);
     if (benched.length > 0) {
       const switchRow = document.createElement('div');
       switchRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center;';
@@ -243,7 +292,11 @@ export class BattleScreen {
     return menu;
   }
 
-  #result(battle: NonNullable<ReturnType<NetHandle['battle']>>): HTMLElement {
+  #result(
+    battle: NonNullable<ReturnType<NetHandle['battle']>>,
+    pvp: boolean,
+    viewerIsPlayer: boolean,
+  ): HTMLElement {
     const outcome = battle.state.outcome.tag;
     const box = document.createElement('div');
     box.style.cssText =
@@ -252,15 +305,16 @@ export class BattleScreen {
     const wildName = this.#speciesName(
       battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
     );
-    const headline =
-      outcome === 'PlayerWon' ? 'Victory!' : outcome === 'Recruited' ? 'Gotcha!' : 'Defeat…';
-    const color = outcome === 'PlayerLost' ? '#e2553c' : '#5cbf5c';
+    // The outcome is from the challenger's (state.player) perspective; the accepter wins on PlayerLost.
+    const iWon = viewerIsPlayer ? outcome === 'PlayerWon' : outcome === 'PlayerLost';
+    const headline = outcome === 'Recruited' ? 'Gotcha!' : iWon ? 'Victory!' : 'Defeat…';
+    const color = outcome === 'Recruited' || iWon ? '#5cbf5c' : '#e2553c';
     const msg = document.createElement('div');
     msg.textContent = headline;
     msg.style.cssText = `font-size:26px;font-weight:700;color:${color};`;
     box.append(msg);
 
-    if (outcome === 'PlayerWon') {
+    if (outcome === 'PlayerWon' && !pvp) {
       const xp = document.createElement('div');
       xp.textContent = battle.leveledUp
         ? `Your party gained ${battle.lastXpGain} EXP — and leveled up!`
