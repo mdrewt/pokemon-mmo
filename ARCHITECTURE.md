@@ -375,11 +375,13 @@ to discipline instead of a mechanism.** Each is now closed by a single seam/help
 *class* can't regress (mechanical-enforcement-over-discipline), and is recorded here so new code follows
 the pattern:
 
-- **Every reducer call must surface its rejection.** Reducer calls return a `Promise` that rejects with
-  the server's `Err` string; a fire-and-forget `void conn.reducers.X()` silently swallows it, so a
-  rejected action (no bait, on cooldown, can't evolve yet) does nothing with no feedback. **Guard:** all
-  calls route through the `call(p)` seam in `net/connection.ts`, which `.catch`es and forwards the message
-  to a toast. New reducers inherit this for free — never write a bare `conn.reducers.X()`.
+- **Discrete actions surface their rejection.** Reducer calls return a `Promise` that rejects with the
+  server's `Err` string; a fire-and-forget `void conn.reducers.X()` silently swallows it, so a rejected
+  action (no bait, on cooldown, can't evolve yet) does nothing with no feedback. **Guard:** action
+  reducers route through the `call(p)` seam in `net/connection.ts`, which `.catch`es and forwards the
+  message to a toast (`connect`'s `onActionError` is *required*, so it can't be forgotten). The
+  exception is the high-frequency **movement** reducers — their rejections (queue-full, stale-seq) are
+  normal flow-control that prediction/reconciliation already absorbs, so they stay silent by design.
 - **Content tables are keyed Maps, not arrays.** A re-subscribe re-delivers every row as an insert, so a
   plain-array store collection duplicates on reconnect. **Guard:** every content collection in
   `net/store.ts` is a `Map` keyed by the row's id (idempotent `upsert`); `store.test.ts` asserts this.
