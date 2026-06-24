@@ -218,6 +218,28 @@ pub struct Xp(pub u32);
 #[serde(transparent)]
 pub struct SpeciesId(pub u32);
 
+/// One possible evolution of a species (M10): a target species and the gates the monster must meet.
+/// `to` is the target species id (a plain `u32`, mirroring `skills`, so this can derive
+/// `SpacetimeType` and ride the `species` table — tuple newtypes can't). A species may list several
+/// (branches gated by different conditions); the player picks among the currently-eligible ones.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
+pub struct Evolution {
+    pub to: u32,
+    pub min_level: u8,
+    pub min_bond: u16,
+}
+
+/// A fusion recipe (M10): fusing the two parent species (order-independent) produces the offspring
+/// species. Plain `u32` ids so it can derive `SpacetimeType` and ride the server's `fusion` table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
+pub struct FusionRecipe {
+    pub a: u32,
+    pub b: u32,
+    pub to: u32,
+}
+
 /// A species TEMPLATE — pure content authored in RON (see `crate::content`). M6 keeps this lean;
 /// learnsets, evolution, and recruit requirements are added by M7/M8/M10 (grow-the-schema). The
 /// server maps this to its own `species` table row (it contains the `SpeciesId` newtype).
@@ -235,6 +257,8 @@ pub struct Species {
     /// catch difficulty (M8 taming). Weakening it in battle raises the effective chance; see
     /// `crate::recruit_chance`. Common species are higher, rarer ones lower.
     pub recruit_rate: u16,
+    /// The forms this species can evolve into and their gates (M10). Empty = a final form.
+    pub evolutions: Vec<Evolution>,
 }
 
 /// An owned, individual monster — the in-memory domain form. The server `monster` table mirrors

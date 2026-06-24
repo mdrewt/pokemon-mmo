@@ -348,9 +348,10 @@ incompatible schema change needs `spacetime publish … --delete-data --yes` (de
 
 **Game:** M6 monster foundation & individuality (**done**) · M7 battle — turn-based, server-resolved,
 type chart + readable core, visible XP, persistent HP (**done**) · M8 finding & taming — grass
-encounters, recruit-by-weaken, bait, plus a voluntary in-battle switch (**done**) · **M9 raising &
-growth (next)** — active training/feeding/care shaping the stat spread + bond · M10 evolution &
-fusion · M11 multiplayer (trade / PvP / co-op).
+encounters, recruit-by-weaken, bait, plus a voluntary in-battle switch (**done**) · M9 raising &
+growth — focus-training (food) + care (bond) (**done**) · M10 evolution & fusion — conditional
+branch evolution + fuse-with-inheritance, both keeping/combining individuality (**done**) · **M11
+multiplayer (next)** — trade / PvP leagues / co-op.
 
 One PR per milestone → CI + the review gates (`reducer-security-auditor`, `desync-guard`,
 `/simplify`, `/code-review`) → merge, with the user verifying user-facing feel first. (See the

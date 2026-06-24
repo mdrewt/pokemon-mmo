@@ -23,9 +23,14 @@ playable through **find → tame → fight**:
   and a voluntary mid-battle **switch**.
 - **Find & tame** — walk into **tall grass** to trigger wild encounters; **weaken then recruit**
   (recruit odds rise as the wild's HP drops), optionally spending **bait**; the catch joins your box.
+- **Raise** — **feed** training food to shape a monster's stat spread and **care** for it to build
+  bond; how you raise it makes two same-species monsters genuinely diverge.
+- **Evolve & fuse** — **evolve** a monster once it meets a level/bond gate (branches you choose among),
+  keeping its individuality; or **fuse** two monsters into a stronger offspring that inherits the
+  better genes of each.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the durable design record and the milestone roadmap
-(next: **M9 — raising & growth**).
+(next: **M11 — multiplayer**: trade / PvP / co-op).
 
 ## Stack & layout
 

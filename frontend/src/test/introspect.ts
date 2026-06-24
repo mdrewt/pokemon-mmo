@@ -50,6 +50,8 @@ export interface GameSnapshot {
     /** Raising state (M9): loyalty + total training invested across stats. */
     bond: number;
     trainingTotal: number;
+    /** Species ids this monster is currently eligible to evolve into (M10; server-computed). */
+    evolvesTo: number[];
   }[];
   /** Total monster rows this client has RECEIVED (not filtered). RLS scopes this to the owner, so
    *  it should equal the owned count — a regression guard against the monster table leaking others'
@@ -137,6 +139,7 @@ export function installIntrospection(
         maxHp: m.derived.hp,
         bond: m.bond,
         trainingTotal: trainingTotal(m.training),
+        evolvesTo: [...m.evolvesTo],
       })),
       visibleMonsterCount: net.store.monsters.size,
       baitCount: net.baitCount(),

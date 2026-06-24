@@ -42,4 +42,5 @@ export default __t.row({
   },
   partySlot: __t.option(__t.u8()).name("party_slot"),
   lastCareAtMs: __t.i64().name("last_care_at_ms"),
+  evolvesTo: __t.array(__t.u32()).name("evolves_to"),
 });

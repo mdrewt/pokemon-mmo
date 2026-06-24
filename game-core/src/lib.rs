@@ -26,12 +26,14 @@ pub use combat::{
     MAX_VARIANCE_ROLL,
 };
 pub use content::{
-    load_encounters, load_items, load_skills, load_species, load_type_chart, validate_content,
+    load_encounters, load_fusions, load_items, load_skills, load_species, load_type_chart,
+    validate_content,
 };
 pub use monster::{
-    apply_care, apply_training, derive_stats, level_bounds, level_for_xp, roll_individuality,
-    roll_starter, xp_for_level, Affinity, Bond, Level, MonsterInstance, Potential, Species,
-    SpeciesId, Stat, StatBlock, Temperament, Training, Xp,
+    apply_care, apply_training, derive_stats, eligible_evolutions, find_fusion, fuse_offspring,
+    level_bounds, level_for_xp, roll_individuality, roll_starter, xp_for_level, Affinity, Bond,
+    Evolution, FusionRecipe, Level, MonsterInstance, Potential, Species, SpeciesId, Stat,
+    StatBlock, Temperament, Training, Xp,
 };
 pub use taming::{
     attempt_recruit, encounter_triggers, recruit_chance, EncounterEntry, EncounterTable, Item,

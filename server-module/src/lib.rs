@@ -13,11 +13,12 @@
 
 use game_core::{
     apply_care, apply_move, apply_training, attempt_recruit as recruit_succeeds, battle_xp_reward,
-    derive_stats, encounter_triggers, level_bounds, load_encounters, load_items, load_skills,
-    load_species, load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance,
-    resolve_enemy_turn, resolve_player_swap, resolve_turn, roll_individuality, roll_starter,
-    xp_for_level, ActionState, Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide,
-    BattleState, Bond, Category, CharacterState, Direction, Effectiveness, EncounterTable, Level,
+    derive_stats, eligible_evolutions, encounter_triggers, find_fusion, fuse_offspring,
+    level_bounds, load_encounters, load_fusions, load_items, load_skills, load_species,
+    load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance, resolve_enemy_turn,
+    resolve_player_swap, resolve_turn, roll_individuality, roll_starter, xp_for_level, ActionState,
+    Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide, BattleState, Bond, Category,
+    CharacterState, Direction, Effectiveness, EncounterTable, Evolution, FusionRecipe, Level,
     Millis, MonsterInstance, MoveInput, NpcParams, Potential, Skill as CoreSkill,
     Species as CoreSpecies, SpeciesId, Stat, StatBlock, Temperament, TileMap, TilePos, Training,
     TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
@@ -126,6 +127,8 @@ pub struct Species {
     /// Base recruit chance in permille at full HP (the client can show catch difficulty). Mirrors
     /// `game_core::Species::recruit_rate`.
     pub recruit_rate: u16,
+    /// Evolution branches + their gates (M10). Mirrors `game_core::Species::evolutions`.
+    pub evolutions: Vec<Evolution>,
 }
 
 /// Skill templates, seeded at init from the game-core registry. Public read-only content so the
@@ -182,6 +185,19 @@ pub struct Item {
     /// `game_core::Item`.
     pub train_stat: Option<Stat>,
     pub train_amount: u16,
+}
+
+/// Fusion recipes, seeded at init from the game-core registry. Public read-only content so the client
+/// can show valid fusion partners (a data lookup, not a duplicated rule). Mirrors
+/// `game_core::FusionRecipe`; fusing species `a` + `b` (order-independent) yields species `to`.
+#[spacetimedb::table(name = fusion, public)]
+pub struct Fusion {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub a: u32,
+    pub b: u32,
+    pub to: u32,
 }
 
 /// A player's owned quantity of an item. Public so the owner's client shows counts; RLS-scoped to the
@@ -258,6 +274,10 @@ pub struct Monster {
     /// Milliseconds since epoch of the last `care_for_monster` (0 = never). Gates the care cooldown
     /// — active-only raising, never an idle accrual.
     pub last_care_at_ms: i64,
+    /// Target species ids this monster currently qualifies to evolve into (server-computed from its
+    /// level + bond via `game_core::eligible_evolutions`; M10). The client shows Evolve options from
+    /// this — it never re-derives the gate.
+    pub evolves_to: Vec<u32>,
 }
 
 /// Row-level security: a client only ever sees its OWN monsters over the subscription. The `monster`
@@ -378,6 +398,7 @@ fn core_species(row: &Species) -> CoreSpecies {
         sprite_id: row.sprite_id,
         skills: row.skills.iter().map(|&s| game_core::SkillId(s)).collect(),
         recruit_rate: row.recruit_rate,
+        evolutions: row.evolutions.clone(),
     }
 }
 
@@ -428,6 +449,7 @@ fn monster_row(
         derived,
         party_slot,
         last_care_at_ms: 0, // never cared for yet → first care is immediately allowed
+        evolves_to: eligible_evolutions(species, Level(level), Bond(inst.bond.0)),
     }
 }
 
@@ -437,8 +459,22 @@ fn grant_starter(ctx: &ReducerContext, owner: Identity) {
     if ctx.db.monster().owner_identity().filter(owner).count() > 0 {
         return;
     }
-    let species: Vec<Species> = ctx.db.species().iter().collect();
-    let Some(pick) = species.get(ctx.rng().gen_range(0..species.len().max(1))) else {
+    // Starters are BASE forms only — never a species reachable solely by evolving (an evolution
+    // target) or by fusing (a fusion offspring). Both are derived from content, not a hard-coded list.
+    let mut derived_forms: std::collections::BTreeSet<u32> = ctx
+        .db
+        .species()
+        .iter()
+        .flat_map(|s| s.evolutions.into_iter().map(|e| e.to))
+        .collect();
+    derived_forms.extend(ctx.db.fusion().iter().map(|f| f.to));
+    let base: Vec<Species> = ctx
+        .db
+        .species()
+        .iter()
+        .filter(|s| !derived_forms.contains(&s.species_id))
+        .collect();
+    let Some(pick) = base.get(ctx.rng().gen_range(0..base.len().max(1))) else {
         return; // no species content seeded (shouldn't happen; init seeds it)
     };
     let core = core_species(pick);
@@ -492,11 +528,51 @@ fn caller_monster(ctx: &ReducerContext, monster_id: u64) -> Result<Monster, Stri
     Ok(monster)
 }
 
+/// Reject a monster-mutating action while the caller has an active battle. A `battle` holds a
+/// snapshot of its party, so evolving / fusing / training / re-slotting a combatant mid-battle would
+/// desync it — and fusing a combatant (which deletes the row) would dodge the post-turn HP write-back.
+/// The box UI is overworld-only, so in practice this only blocks a direct hostile reducer call.
+fn reject_if_in_battle(ctx: &ReducerContext) -> Result<(), String> {
+    if ctx.db.battle().player_identity().find(ctx.sender).is_some() {
+        return Err("you can't do that during a battle".to_string());
+    }
+    Ok(())
+}
+
 /// Spend one of an item stack (the caller already validated ownership + `quantity > 0`). The single
 /// place item consumption happens, so a future change (e.g. deleting empty stacks) lives here.
 fn consume_one(ctx: &ReducerContext, mut stack: PlayerItem) {
     stack.quantity -= 1;
     ctx.db.player_item().id().update(stack);
+}
+
+/// Reconstruct the in-memory `MonsterInstance` from a stored row — the inverse of `monster_row` for
+/// the individuality fields fusion inherits (genes, temperament, bond).
+fn monster_to_instance(m: &Monster) -> MonsterInstance {
+    MonsterInstance {
+        species_id: SpeciesId(m.species_id),
+        nickname: (!m.nickname.is_empty()).then(|| m.nickname.clone()),
+        level: Level(m.level),
+        xp: Xp(m.xp),
+        potential: m.potential,
+        temperament: m.temperament,
+        training: m.training,
+        bond: Bond(m.bond),
+        current_hp: m.current_hp,
+    }
+}
+
+/// Rebuild the in-memory fusion recipe list from the seeded `fusion` rows (the table is the cache).
+fn fusions_from_db(ctx: &ReducerContext) -> Vec<FusionRecipe> {
+    ctx.db
+        .fusion()
+        .iter()
+        .map(|f| FusionRecipe {
+            a: f.a,
+            b: f.b,
+            to: f.to,
+        })
+        .collect()
 }
 
 // --- Battle helpers (marshaling + delegate to game-core) ------------------------------------
@@ -664,18 +740,17 @@ fn persist_party_hp(ctx: &ReducerContext, battle: &Battle) {
 /// stored-but-derived columns are refreshed.
 fn refresh_monster_stats(ctx: &ReducerContext, m: &mut Monster) {
     if let Some(sp) = ctx.db.species().species_id().find(m.species_id) {
-        let (level, xp_floor, xp_next, derived) = level_fields(
-            &core_species(&sp),
-            m.xp,
-            &m.potential,
-            &m.training,
-            m.temperament,
-        );
+        let core = core_species(&sp);
+        let (level, xp_floor, xp_next, derived) =
+            level_fields(&core, m.xp, &m.potential, &m.training, m.temperament);
         m.level = level;
         m.xp_floor = xp_floor;
         m.xp_next = xp_next;
         m.current_hp = m.current_hp.min(derived.hp);
         m.derived = derived;
+        // Evolution eligibility depends on level + bond, so refresh it here too — call after any
+        // level / bond / species change so the client's Evolve options stay correct.
+        m.evolves_to = eligible_evolutions(&core, Level(m.level), Bond(m.bond));
     }
 }
 
@@ -804,6 +879,7 @@ pub fn init(ctx: &ReducerContext) {
             sprite_id: s.sprite_id,
             skills: s.skills.iter().map(|sk| sk.0).collect(),
             recruit_rate: s.recruit_rate,
+            evolutions: s.evolutions,
         });
     }
     for sk in load_skills().expect("embedded skill content must be valid") {
@@ -847,6 +923,14 @@ pub fn init(ctx: &ReducerContext) {
             recruit_bonus: it.recruit_bonus,
             train_stat: it.train_stat,
             train_amount: it.train_amount,
+        });
+    }
+    for r in load_fusions().expect("embedded fusion content must be valid") {
+        ctx.db.fusion().insert(Fusion {
+            id: 0,
+            a: r.a,
+            b: r.b,
+            to: r.to,
         });
     }
 
@@ -1075,6 +1159,7 @@ pub fn set_party_slot(
     monster_id: u64,
     slot: Option<u8>,
 ) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
 
     if let Some(s) = slot {
@@ -1106,6 +1191,7 @@ pub fn set_party_slot(
 /// and recomputes the monster's stats. The visible "raising shapes growth" loop.
 #[spacetimedb::reducer]
 pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
 
     let item = ctx
@@ -1137,6 +1223,7 @@ pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Res
 /// per-monster cooldown (`CARE_COOLDOWN_MS`), never an idle accrual. Validates ownership + cooldown.
 #[spacetimedb::reducer]
 pub fn care_for_monster(ctx: &ReducerContext, monster_id: u64) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
     // Already maxed → reject rather than burn the cooldown on a no-op gain.
     if monster.bond >= Bond::MAX {
@@ -1148,7 +1235,84 @@ pub fn care_for_monster(ctx: &ReducerContext, monster_id: u64) -> Result<(), Str
     }
     monster.bond = apply_care(Bond(monster.bond), CARE_BOND_GAIN).0;
     monster.last_care_at_ms = now;
+    // Bond can cross an evolution gate, so refresh eligibility (and derived, harmlessly).
+    refresh_monster_stats(ctx, &mut monster);
     ctx.db.monster().monster_id().update(monster);
+    Ok(())
+}
+
+/// Evolve one of the caller's monsters into `to_species_id`. The server re-checks that the target is
+/// a currently-eligible evolution (level + bond gates), then swaps the species and recomputes stats —
+/// the monster KEEPS its genes / training / bond / XP / nickname, so it's the same individual, evolved.
+#[spacetimedb::reducer]
+pub fn evolve_monster(
+    ctx: &ReducerContext,
+    monster_id: u64,
+    to_species_id: u32,
+) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
+    let mut monster = caller_monster(ctx, monster_id)?;
+    let species = ctx
+        .db
+        .species()
+        .species_id()
+        .find(monster.species_id)
+        .ok_or("species missing")?;
+    // Re-validate eligibility from authoritative state — never trust the client's chosen target.
+    let eligible = eligible_evolutions(
+        &core_species(&species),
+        Level(monster.level),
+        Bond(monster.bond),
+    );
+    if !eligible.contains(&to_species_id) {
+        return Err("this monster can't evolve into that yet".to_string());
+    }
+
+    monster.species_id = to_species_id;
+    refresh_monster_stats(ctx, &mut monster); // new species → new base/derived + fresh evolves_to
+    ctx.db.monster().monster_id().update(monster);
+    Ok(())
+}
+
+/// Fuse two of the caller's monsters into a stronger offspring (M10): the offspring inherits the
+/// better genes of each parent (game-core rule) and BOTH parents are consumed — all in one
+/// transaction, so it's atomic. Validates ownership of both, that they're distinct, and that a recipe
+/// exists for their species pair (rejects otherwise).
+#[spacetimedb::reducer]
+pub fn fuse_monsters(ctx: &ReducerContext, monster_a: u64, monster_b: u64) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
+    if monster_a == monster_b {
+        return Err("pick two different monsters to fuse".to_string());
+    }
+    let a = caller_monster(ctx, monster_a)?;
+    let b = caller_monster(ctx, monster_b)?;
+
+    let offspring_id = find_fusion(&fusions_from_db(ctx), a.species_id, b.species_id)
+        .ok_or("those two monsters can't be fused")?;
+    let offspring_species = ctx
+        .db
+        .species()
+        .species_id()
+        .find(offspring_id)
+        .ok_or("fusion target species missing")?;
+
+    let inst = fuse_offspring(
+        SpeciesId(offspring_id),
+        &monster_to_instance(&a),
+        &monster_to_instance(&b),
+    );
+    // The offspring inherits a consumed parent's party slot (the lower one) so fusing party members
+    // doesn't silently shrink the active team; if both parents were in the box it goes to the box.
+    let slot = [a.party_slot, b.party_slot].into_iter().flatten().min();
+    // Consume both parents, then create the offspring (one reducer = one transaction = atomic).
+    ctx.db.monster().monster_id().delete(monster_a);
+    ctx.db.monster().monster_id().delete(monster_b);
+    ctx.db.monster().insert(monster_row(
+        ctx.sender,
+        &core_species(&offspring_species),
+        &inst,
+        slot,
+    ));
     Ok(())
 }
 

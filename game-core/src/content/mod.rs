@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 
 use crate::combat::{Skill, TypeChart};
-use crate::monster::Species;
+use crate::monster::{FusionRecipe, Species};
 use crate::taming::{EncounterTable, Item};
 
 const SPECIES_RON: &str = include_str!("../../content/species.ron");
@@ -19,6 +19,7 @@ const SKILLS_RON: &str = include_str!("../../content/skills.ron");
 const AFFINITY_CHART_RON: &str = include_str!("../../content/affinity_chart.ron");
 const ENCOUNTERS_RON: &str = include_str!("../../content/encounters.ron");
 const ITEMS_RON: &str = include_str!("../../content/items.ron");
+const FUSIONS_RON: &str = include_str!("../../content/fusions.ron");
 
 /// Parse + validate the embedded species content. Returns an error string on malformed RON or a
 /// content-integrity violation (empty, duplicate ids).
@@ -105,6 +106,19 @@ pub fn load_items() -> Result<Vec<Item>, String> {
     Ok(items)
 }
 
+/// Parse + validate the embedded fusion recipes (non-empty, distinct parents). Species-reference
+/// integrity is checked by [`validate_content`] (it needs the species list).
+pub fn load_fusions() -> Result<Vec<FusionRecipe>, String> {
+    let fusions: Vec<FusionRecipe> =
+        ron::from_str(FUSIONS_RON).map_err(|e| format!("fusions.ron parse error: {e}"))?;
+    for r in &fusions {
+        if r.a == r.b {
+            return Err(format!("fusion recipe fuses species {} with itself", r.a));
+        }
+    }
+    Ok(fusions)
+}
+
 /// Parse the embedded type/affinity chart.
 pub fn load_type_chart() -> Result<TypeChart, String> {
     ron::from_str(AFFINITY_CHART_RON).map_err(|e| format!("affinity_chart.ron parse error: {e}"))
@@ -131,6 +145,19 @@ pub fn validate_content() -> Result<(), String> {
                 ));
             }
         }
+        // Every evolution must target a real, different species (a dangling/self evolution would
+        // either crash an evolve or loop a monster onto itself).
+        for evo in &sp.evolutions {
+            if evo.to == sp.id.0 {
+                return Err(format!("species {} evolves into itself", sp.id.0));
+            }
+            if !species_ids.contains(&evo.to) {
+                return Err(format!(
+                    "species {} evolves into unknown species id {}",
+                    sp.id.0, evo.to
+                ));
+            }
+        }
     }
     // Every encounter must reference a real species, or a wild roll would hit a missing template.
     for e in &load_encounters()?.entries {
@@ -139,6 +166,14 @@ pub fn validate_content() -> Result<(), String> {
                 "encounter references unknown species id {}",
                 e.species_id
             ));
+        }
+    }
+    // Every fusion recipe's parents + offspring must be real species.
+    for r in &load_fusions()? {
+        for id in [r.a, r.b, r.to] {
+            if !species_ids.contains(&id) {
+                return Err(format!("fusion recipe references unknown species id {id}"));
+            }
         }
     }
     Ok(())
@@ -190,6 +225,30 @@ mod tests {
     #[test]
     fn content_cross_references_are_valid() {
         validate_content().expect("every species learnset must reference real skills");
+    }
+
+    #[test]
+    fn embedded_species_have_valid_evolutions() {
+        let species = load_species().expect("species.ron parses");
+        // The base starters (1-4) each evolve into something; validate_content already checked the
+        // targets exist + aren't self-references.
+        for id in [1u32, 2, 3, 4] {
+            let sp = species.iter().find(|s| s.id.0 == id).unwrap();
+            assert!(!sp.evolutions.is_empty(), "base species {id} should evolve");
+        }
+        // Evolved forms (5-9) are final.
+        let verdanthorn = species.iter().find(|s| s.id.0 == 5).unwrap();
+        assert!(verdanthorn.evolutions.is_empty(), "evolved form is final");
+    }
+
+    #[test]
+    fn embedded_fusions_parse_and_reference_real_species() {
+        use crate::find_fusion;
+        let fusions = load_fusions().expect("fusions.ron parses + validates");
+        assert!(!fusions.is_empty());
+        // A known cross-pair resolves order-independently to a fusion-only species.
+        assert_eq!(find_fusion(&fusions, 1, 2), find_fusion(&fusions, 2, 1));
+        assert!(find_fusion(&fusions, 1, 2).is_some());
     }
 
     #[test]

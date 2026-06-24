@@ -8,6 +8,7 @@ import { DbConnection, type EventContext, type ErrorContext } from '../module_bi
 import type {
   Battle,
   Character,
+  Fusion,
   Item,
   Monster,
   MoveInput,
@@ -47,6 +48,9 @@ export interface NetHandle {
   baitCount(): number;
   /** The caller's owned training food (item id + name + count), for the box Raise UI. */
   foodItems(): { itemId: number; name: string; quantity: number }[];
+  /** Owned monsters that form a valid fusion recipe with `monster` (a data lookup on the subscribed
+   *  `fusion` table — not a computed outcome), each with the resulting offspring species id. */
+  fusionPartners(monster: Monster): { partner: Monster; offspringSpeciesId: number }[];
 
   joinGame(name: string): void;
   enqueueMove(input: MoveInput, seq: bigint): void;
@@ -56,6 +60,8 @@ export interface NetHandle {
   setPartySlot(monsterId: bigint, slot: number | undefined): void;
   trainMonster(monsterId: bigint, itemId: number): void;
   careForMonster(monsterId: bigint): void;
+  evolveMonster(monsterId: bigint, toSpeciesId: number): void;
+  fuseMonsters(monsterA: bigint, monsterB: bigint): void;
   startBattle(): void;
   submitAction(skillId: number): void;
   swapActive(teamIndex: number): void;
@@ -120,6 +126,7 @@ export function connect(): Promise<NetHandle> {
             'SELECT * FROM battle',
             'SELECT * FROM item',
             'SELECT * FROM player_item',
+            'SELECT * FROM fusion',
           ]);
       })
       .onConnectError((_ctx: ErrorContext, error: Error) => {
@@ -184,6 +191,9 @@ export function connect(): Promise<NetHandle> {
 
     conn.db.item.onInsert((_ctx: EventContext, row: Item) => {
       store.upsertItem(row);
+    });
+    conn.db.fusion.onInsert((_ctx: EventContext, row: Fusion) => {
+      store.upsertFusion(row);
     });
     conn.db.player_item.onInsert((_ctx: EventContext, row: PlayerItem) => {
       store.upsertPlayerItem(row);
@@ -263,6 +273,19 @@ export function connect(): Promise<NetHandle> {
         }
         return out.sort((a, b) => a.itemId - b.itemId);
       },
+      fusionPartners: (monster: Monster) => {
+        const out: { partner: Monster; offspringSpeciesId: number }[] = [];
+        for (const partner of ownMonsters()) {
+          if (partner.monsterId === monster.monsterId) continue;
+          const recipe = [...store.fusions.values()].find(
+            (f) =>
+              (f.a === monster.speciesId && f.b === partner.speciesId) ||
+              (f.a === partner.speciesId && f.b === monster.speciesId),
+          );
+          if (recipe) out.push({ partner, offspringSpeciesId: recipe.to });
+        }
+        return out;
+      },
       joinGame: (name: string) => {
         void conn.reducers.joinGame({ name });
       },
@@ -286,6 +309,12 @@ export function connect(): Promise<NetHandle> {
       },
       careForMonster: (monsterId: bigint) => {
         void conn.reducers.careForMonster({ monsterId });
+      },
+      evolveMonster: (monsterId: bigint, toSpeciesId: number) => {
+        void conn.reducers.evolveMonster({ monsterId, toSpeciesId });
+      },
+      fuseMonsters: (monsterA: bigint, monsterB: bigint) => {
+        void conn.reducers.fuseMonsters({ monsterA, monsterB });
       },
       startBattle: () => {
         void conn.reducers.startBattle({});
