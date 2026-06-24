@@ -459,18 +459,20 @@ fn grant_starter(ctx: &ReducerContext, owner: Identity) {
     if ctx.db.monster().owner_identity().filter(owner).count() > 0 {
         return;
     }
-    // Starters are BASE forms only — never a species that is some other species' evolution target.
-    let evolved: std::collections::BTreeSet<u32> = ctx
+    // Starters are BASE forms only — never a species reachable solely by evolving (an evolution
+    // target) or by fusing (a fusion offspring). Both are derived from content, not a hard-coded list.
+    let mut derived_forms: std::collections::BTreeSet<u32> = ctx
         .db
         .species()
         .iter()
         .flat_map(|s| s.evolutions.into_iter().map(|e| e.to))
         .collect();
+    derived_forms.extend(ctx.db.fusion().iter().map(|f| f.to));
     let base: Vec<Species> = ctx
         .db
         .species()
         .iter()
-        .filter(|s| !evolved.contains(&s.species_id))
+        .filter(|s| !derived_forms.contains(&s.species_id))
         .collect();
     let Some(pick) = base.get(ctx.rng().gen_range(0..base.len().max(1))) else {
         return; // no species content seeded (shouldn't happen; init seeds it)
@@ -1299,6 +1301,9 @@ pub fn fuse_monsters(ctx: &ReducerContext, monster_a: u64, monster_b: u64) -> Re
         &monster_to_instance(&a),
         &monster_to_instance(&b),
     );
+    // The offspring inherits a consumed parent's party slot (the lower one) so fusing party members
+    // doesn't silently shrink the active team; if both parents were in the box it goes to the box.
+    let slot = [a.party_slot, b.party_slot].into_iter().flatten().min();
     // Consume both parents, then create the offspring (one reducer = one transaction = atomic).
     ctx.db.monster().monster_id().delete(monster_a);
     ctx.db.monster().monster_id().delete(monster_b);
@@ -1306,7 +1311,7 @@ pub fn fuse_monsters(ctx: &ReducerContext, monster_a: u64, monster_b: u64) -> Re
         ctx.sender,
         &core_species(&offspring_species),
         &inst,
-        None,
+        slot,
     ));
     Ok(())
 }
