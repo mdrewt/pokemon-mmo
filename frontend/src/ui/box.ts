@@ -225,6 +225,7 @@ export class BoxScreen {
       this.#statBar('Speed', d.speed, STAT_BAR_MAX, barColor, t.speed),
     );
     panel.append(statBlock);
+    if (m.evolvesTo.length > 0) panel.append(this.#evolveControls(m));
     panel.append(this.#raiseControls(m));
 
     // Rename
@@ -336,6 +337,29 @@ export class BoxScreen {
     }
     row.append(l, track, v);
     return row;
+  }
+
+  /** Evolution prompt (shown only when the server marks the monster eligible): one button per
+   *  eligible target species (a branch). Evolving keeps the monster's individuality. */
+  #evolveControls(m: Monster): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.style.cssText =
+      'display:flex;flex-direction:column;gap:6px;margin-top:8px;padding:10px;border-radius:8px;border:1px solid #6a8f3a;background:#1a2415;';
+    const label = document.createElement('span');
+    label.textContent = '✨ READY TO EVOLVE';
+    label.style.cssText = `${LABEL_STYLE}color:#a7d36a;`;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+    for (const speciesId of m.evolvesTo) {
+      const name = this.#net.species(speciesId)?.name ?? `#${speciesId}`;
+      const b = this.#button(`Evolve into ${name}`);
+      b.dataset.evolve = String(speciesId); // test hook for the e2e
+      b.style.background = '#4a7a2a';
+      b.onclick = () => this.#net.evolveMonster(m.monsterId, speciesId);
+      row.append(b);
+    }
+    wrap.append(label, row);
+    return wrap;
   }
 
   /** The "Raise" controls: care (builds bond, cooldown-gated) + feed a training food per stat. */

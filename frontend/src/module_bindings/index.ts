@@ -39,6 +39,7 @@ import CareForMonsterReducer from "./care_for_monster_reducer";
 import ClearQueueReducer from "./clear_queue_reducer";
 import CloseBattleReducer from "./close_battle_reducer";
 import EnqueueMoveReducer from "./enqueue_move_reducer";
+import EvolveMonsterReducer from "./evolve_monster_reducer";
 import HealPartyReducer from "./heal_party_reducer";
 import JoinGameReducer from "./join_game_reducer";
 import RenameMonsterReducer from "./rename_monster_reducer";
@@ -207,6 +208,7 @@ const reducersSchema = __reducers(
   __reducerSchema("clear_queue", ClearQueueReducer),
   __reducerSchema("close_battle", CloseBattleReducer),
   __reducerSchema("enqueue_move", EnqueueMoveReducer),
+  __reducerSchema("evolve_monster", EvolveMonsterReducer),
   __reducerSchema("heal_party", HealPartyReducer),
   __reducerSchema("join_game", JoinGameReducer),
   __reducerSchema("rename_monster", RenameMonsterReducer),

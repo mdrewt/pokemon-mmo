@@ -13,14 +13,14 @@
 
 use game_core::{
     apply_care, apply_move, apply_training, attempt_recruit as recruit_succeeds, battle_xp_reward,
-    derive_stats, encounter_triggers, level_bounds, load_encounters, load_items, load_skills,
-    load_species, load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance,
-    resolve_enemy_turn, resolve_player_swap, resolve_turn, roll_individuality, roll_starter,
-    xp_for_level, ActionState, Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide,
-    BattleState, Bond, Category, CharacterState, Direction, Effectiveness, EncounterTable, Level,
-    Millis, MonsterInstance, MoveInput, NpcParams, Potential, Skill as CoreSkill,
-    Species as CoreSpecies, SpeciesId, Stat, StatBlock, Temperament, TileMap, TilePos, Training,
-    TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
+    derive_stats, eligible_evolutions, encounter_triggers, level_bounds, load_encounters,
+    load_items, load_skills, load_species, load_type_chart, npc_decide, pick_best_skill, poc_map,
+    recruit_chance, resolve_enemy_turn, resolve_player_swap, resolve_turn, roll_individuality,
+    roll_starter, xp_for_level, ActionState, Affinity, BattleEvent, BattleMonster, BattleOutcome,
+    BattleSide, BattleState, Bond, Category, CharacterState, Direction, Effectiveness,
+    EncounterTable, Evolution, Level, Millis, MonsterInstance, MoveInput, NpcParams, Potential,
+    Skill as CoreSkill, Species as CoreSpecies, SpeciesId, Stat, StatBlock, Temperament, TileMap,
+    TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, Table};
@@ -126,6 +126,8 @@ pub struct Species {
     /// Base recruit chance in permille at full HP (the client can show catch difficulty). Mirrors
     /// `game_core::Species::recruit_rate`.
     pub recruit_rate: u16,
+    /// Evolution branches + their gates (M10). Mirrors `game_core::Species::evolutions`.
+    pub evolutions: Vec<Evolution>,
 }
 
 /// Skill templates, seeded at init from the game-core registry. Public read-only content so the
@@ -258,6 +260,10 @@ pub struct Monster {
     /// Milliseconds since epoch of the last `care_for_monster` (0 = never). Gates the care cooldown
     /// — active-only raising, never an idle accrual.
     pub last_care_at_ms: i64,
+    /// Target species ids this monster currently qualifies to evolve into (server-computed from its
+    /// level + bond via `game_core::eligible_evolutions`; M10). The client shows Evolve options from
+    /// this — it never re-derives the gate.
+    pub evolves_to: Vec<u32>,
 }
 
 /// Row-level security: a client only ever sees its OWN monsters over the subscription. The `monster`
@@ -378,6 +384,7 @@ fn core_species(row: &Species) -> CoreSpecies {
         sprite_id: row.sprite_id,
         skills: row.skills.iter().map(|&s| game_core::SkillId(s)).collect(),
         recruit_rate: row.recruit_rate,
+        evolutions: row.evolutions.clone(),
     }
 }
 
@@ -428,6 +435,7 @@ fn monster_row(
         derived,
         party_slot,
         last_care_at_ms: 0, // never cared for yet → first care is immediately allowed
+        evolves_to: eligible_evolutions(species, Level(level), Bond(inst.bond.0)),
     }
 }
 
@@ -437,8 +445,20 @@ fn grant_starter(ctx: &ReducerContext, owner: Identity) {
     if ctx.db.monster().owner_identity().filter(owner).count() > 0 {
         return;
     }
-    let species: Vec<Species> = ctx.db.species().iter().collect();
-    let Some(pick) = species.get(ctx.rng().gen_range(0..species.len().max(1))) else {
+    // Starters are BASE forms only — never a species that is some other species' evolution target.
+    let evolved: std::collections::BTreeSet<u32> = ctx
+        .db
+        .species()
+        .iter()
+        .flat_map(|s| s.evolutions.into_iter().map(|e| e.to))
+        .collect();
+    let base: Vec<Species> = ctx
+        .db
+        .species()
+        .iter()
+        .filter(|s| !evolved.contains(&s.species_id))
+        .collect();
+    let Some(pick) = base.get(ctx.rng().gen_range(0..base.len().max(1))) else {
         return; // no species content seeded (shouldn't happen; init seeds it)
     };
     let core = core_species(pick);
@@ -664,18 +684,17 @@ fn persist_party_hp(ctx: &ReducerContext, battle: &Battle) {
 /// stored-but-derived columns are refreshed.
 fn refresh_monster_stats(ctx: &ReducerContext, m: &mut Monster) {
     if let Some(sp) = ctx.db.species().species_id().find(m.species_id) {
-        let (level, xp_floor, xp_next, derived) = level_fields(
-            &core_species(&sp),
-            m.xp,
-            &m.potential,
-            &m.training,
-            m.temperament,
-        );
+        let core = core_species(&sp);
+        let (level, xp_floor, xp_next, derived) =
+            level_fields(&core, m.xp, &m.potential, &m.training, m.temperament);
         m.level = level;
         m.xp_floor = xp_floor;
         m.xp_next = xp_next;
         m.current_hp = m.current_hp.min(derived.hp);
         m.derived = derived;
+        // Evolution eligibility depends on level + bond, so refresh it here too — call after any
+        // level / bond / species change so the client's Evolve options stay correct.
+        m.evolves_to = eligible_evolutions(&core, Level(m.level), Bond(m.bond));
     }
 }
 
@@ -804,6 +823,7 @@ pub fn init(ctx: &ReducerContext) {
             sprite_id: s.sprite_id,
             skills: s.skills.iter().map(|sk| sk.0).collect(),
             recruit_rate: s.recruit_rate,
+            evolutions: s.evolutions,
         });
     }
     for sk in load_skills().expect("embedded skill content must be valid") {
@@ -1148,6 +1168,40 @@ pub fn care_for_monster(ctx: &ReducerContext, monster_id: u64) -> Result<(), Str
     }
     monster.bond = apply_care(Bond(monster.bond), CARE_BOND_GAIN).0;
     monster.last_care_at_ms = now;
+    // Bond can cross an evolution gate, so refresh eligibility (and derived, harmlessly).
+    refresh_monster_stats(ctx, &mut monster);
+    ctx.db.monster().monster_id().update(monster);
+    Ok(())
+}
+
+/// Evolve one of the caller's monsters into `to_species_id`. The server re-checks that the target is
+/// a currently-eligible evolution (level + bond gates), then swaps the species and recomputes stats —
+/// the monster KEEPS its genes / training / bond / XP / nickname, so it's the same individual, evolved.
+#[spacetimedb::reducer]
+pub fn evolve_monster(
+    ctx: &ReducerContext,
+    monster_id: u64,
+    to_species_id: u32,
+) -> Result<(), String> {
+    let mut monster = caller_monster(ctx, monster_id)?;
+    let species = ctx
+        .db
+        .species()
+        .species_id()
+        .find(monster.species_id)
+        .ok_or("species missing")?;
+    // Re-validate eligibility from authoritative state — never trust the client's chosen target.
+    let eligible = eligible_evolutions(
+        &core_species(&species),
+        Level(monster.level),
+        Bond(monster.bond),
+    );
+    if !eligible.contains(&to_species_id) {
+        return Err("this monster can't evolve into that yet".to_string());
+    }
+
+    monster.species_id = to_species_id;
+    refresh_monster_stats(ctx, &mut monster); // new species → new base/derived + fresh evolves_to
     ctx.db.monster().monster_id().update(monster);
     Ok(())
 }

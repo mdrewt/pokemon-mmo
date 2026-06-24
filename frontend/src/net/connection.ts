@@ -56,6 +56,7 @@ export interface NetHandle {
   setPartySlot(monsterId: bigint, slot: number | undefined): void;
   trainMonster(monsterId: bigint, itemId: number): void;
   careForMonster(monsterId: bigint): void;
+  evolveMonster(monsterId: bigint, toSpeciesId: number): void;
   startBattle(): void;
   submitAction(skillId: number): void;
   swapActive(teamIndex: number): void;
@@ -286,6 +287,9 @@ export function connect(): Promise<NetHandle> {
       },
       careForMonster: (monsterId: bigint) => {
         void conn.reducers.careForMonster({ monsterId });
+      },
+      evolveMonster: (monsterId: bigint, toSpeciesId: number) => {
+        void conn.reducers.evolveMonster({ monsterId, toSpeciesId });
       },
       startBattle: () => {
         void conn.reducers.startBattle({});

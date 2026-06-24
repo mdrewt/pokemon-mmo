@@ -183,6 +183,13 @@ export const Encounter = __t.object("Encounter", {
 });
 export type Encounter = __Infer<typeof Encounter>;
 
+export const Evolution = __t.object("Evolution", {
+  to: __t.u32(),
+  minLevel: __t.u8(),
+  minBond: __t.u16(),
+});
+export type Evolution = __Infer<typeof Evolution>;
+
 export const FaintEvent = __t.object("FaintEvent", {
   playerSide: __t.bool(),
   speciesId: __t.u32(),
@@ -225,6 +232,7 @@ export const Monster = __t.object("Monster", {
   },
   partySlot: __t.option(__t.u8()),
   lastCareAtMs: __t.i64(),
+  evolvesTo: __t.array(__t.u32()),
 });
 export type Monster = __Infer<typeof Monster>;
 
@@ -306,6 +314,9 @@ export const Species = __t.object("Species", {
   spriteId: __t.u32(),
   skills: __t.array(__t.u32()),
   recruitRate: __t.u16(),
+  get evolutions() {
+    return __t.array(Evolution);
+  },
 });
 export type Species = __Infer<typeof Species>;
 

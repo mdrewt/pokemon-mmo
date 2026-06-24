@@ -454,6 +454,72 @@ test.describe.serial('two-window integration', () => {
     await expect(pageA.locator('#box-screen')).toBeHidden();
   });
 
+  test('a monster evolves once it meets the gate, keeping its identity (M10)', async () => {
+    test.setTimeout(220_000);
+    const starterId = (await snapshot(pageA)).monsters.find((m) => m.partySlot === 0)!.monsterId;
+    const starter = async () =>
+      (await snapshot(pageA)).monsters.find((m) => m.monsterId === starterId)!;
+
+    // Fight a battle to conclusion, attacking with the first skill each turn (wins give the whole
+    // party XP), then dismiss the result.
+    const fightOnce = async (): Promise<void> => {
+      await pageA.locator('#app').click();
+      await pageA.keyboard.press('KeyH'); // heal so the party can fight
+      await expect
+        .poll(async () =>
+          (await snapshot(pageA)).monsters
+            .filter((m) => m.partySlot !== null)
+            .every((m) => m.currentHp > 0),
+        )
+        .toBe(true);
+      await pageA.keyboard.press('KeyF');
+      await expect.poll(async () => (await snapshot(pageA)).battle !== null).toBe(true);
+      let guard = 0;
+      while (guard++ < 25) {
+        const g = await snapshot(pageA);
+        if (!g.battle || g.battle.outcome !== 'Ongoing') break;
+        const before = g.battle.turn;
+        await pageA.locator('#battle-screen [data-skill]').first().click();
+        await expect
+          .poll(async () => {
+            const b = (await snapshot(pageA)).battle;
+            return b === null || b.outcome !== 'Ongoing' || b.turn > before;
+          })
+          .toBe(true);
+      }
+      const cont = pageA.locator('#battle-screen').getByText('Continue');
+      if ((await cont.count()) > 0) await cont.click();
+      await expect.poll(async () => (await snapshot(pageA)).battle).toBeNull();
+    };
+
+    // Grind until the starter meets its (POC-low) evolution gate — the server then marks it eligible.
+    let battles = 0;
+    while ((await starter()).evolvesTo.length === 0 && battles++ < 20) {
+      await fightOnce();
+    }
+    const before = await starter();
+    expect(before.evolvesTo.length, 'starter should become eligible to evolve').toBeGreaterThan(0);
+    const target = before.evolvesTo[0]!;
+    expect(before.speciesId).not.toBe(target);
+
+    // Evolve it from the box.
+    await pageA.locator('#app').click();
+    await pageA.keyboard.press('KeyB');
+    await expect(pageA.locator('#box-screen')).toBeVisible();
+    await pageA.locator(`#box-screen [data-monster-id="${starterId}"]`).click();
+    await expect(pageA.locator('#box-screen')).toContainText('READY TO EVOLVE');
+    await pageA.locator(`#box-screen [data-evolve="${target}"]`).click();
+    await expect.poll(async () => (await starter()).speciesId).toBe(target);
+
+    // Same individual, evolved: still party slot 0, same id, kept its bond + training.
+    const after = await starter();
+    expect(after.partySlot).toBe(0);
+    expect(after.bond).toBe(before.bond);
+    expect(after.trainingTotal).toBe(before.trainingTotal);
+    await pageA.keyboard.press('Escape');
+    await expect(pageA.locator('#box-screen')).toBeHidden();
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

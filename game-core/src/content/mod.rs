@@ -131,6 +131,19 @@ pub fn validate_content() -> Result<(), String> {
                 ));
             }
         }
+        // Every evolution must target a real, different species (a dangling/self evolution would
+        // either crash an evolve or loop a monster onto itself).
+        for evo in &sp.evolutions {
+            if evo.to == sp.id.0 {
+                return Err(format!("species {} evolves into itself", sp.id.0));
+            }
+            if !species_ids.contains(&evo.to) {
+                return Err(format!(
+                    "species {} evolves into unknown species id {}",
+                    sp.id.0, evo.to
+                ));
+            }
+        }
     }
     // Every encounter must reference a real species, or a wild roll would hit a missing template.
     for e in &load_encounters()?.entries {
@@ -190,6 +203,20 @@ mod tests {
     #[test]
     fn content_cross_references_are_valid() {
         validate_content().expect("every species learnset must reference real skills");
+    }
+
+    #[test]
+    fn embedded_species_have_valid_evolutions() {
+        let species = load_species().expect("species.ron parses");
+        // The base starters (1-4) each evolve into something; validate_content already checked the
+        // targets exist + aren't self-references.
+        for id in [1u32, 2, 3, 4] {
+            let sp = species.iter().find(|s| s.id.0 == id).unwrap();
+            assert!(!sp.evolutions.is_empty(), "base species {id} should evolve");
+        }
+        // Evolved forms (5-9) are final.
+        let verdanthorn = species.iter().find(|s| s.id.0 == 5).unwrap();
+        assert!(verdanthorn.evolutions.is_empty(), "evolved form is final");
     }
 
     #[test]
