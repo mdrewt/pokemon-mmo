@@ -90,9 +90,10 @@ pub enum MoveInput {
 ```
 
 This is Bet 1 (server authority) encoded in a type. The client can send a `MoveInput` — "I intend to
-step North" — but there is no variant for "I am now at tile (5,3)". The client literally *cannot
-express* a computed position to the server. That's "make illegal states unrepresentable": the safest
-way to prevent a bad input is to make it impossible to even write down.
+step North" — but there is no variant for "I am now at tile (5,3)". Combined with the fact that *no
+reducer anywhere accepts a position* (the server only ever takes a `MoveInput` and computes the
+result itself), the client has no way to assert where it is. That's "make illegal states
+unrepresentable": a big part of preventing a bad input is leaving no way to even write it down.
 
 ### Integer tiles, never floats
 
@@ -106,11 +107,18 @@ pub struct TilePos {
 }
 ```
 
-Why integers? Floating-point math can produce *slightly* different results on different CPUs or
-compilers. If position were a float, the client and server could drift apart by a billionth of a tile,
-then a thousandth, then visibly. Integer tile coordinates can't drift — `2 + 1` is `3` everywhere in
-the universe. The smooth sliding you *see* between tiles is computed only in the renderer and never
-stored or sent. **Desync isn't just unlikely here; for position it's arithmetically impossible.**
+Why integers? Floating-point results can differ between two *builds* of the same program. The basic
+IEEE-754 operations (`+`, `−`, `×`, `÷`) are actually well-defined and give the same answer on any
+conforming CPU — but a compiler can fuse a multiply-add into one rounding step, reassociate under
+`fast-math`, or call a `sin`/`cos` whose last bit isn't standardized, and once a tiny difference creeps
+into *accumulating* state it compounds: a billionth of a tile, then a thousandth, then visibly. (Our
+two builds — the client's WASM and the server's native binary — are exactly the kind of pair where that
+could happen; WASM pins basic float arithmetic tightly, but the native build's optimizer doesn't have
+to agree on everything.) Integer tile coordinates sidestep the whole question — `2 + 1` is exactly `3`
+in every build on every machine. The smooth sliding you *see* between tiles is computed only in the
+renderer and never stored or sent. So this **entire class of float-rounding desync is designed out**:
+position can't *numerically* drift. (Logic bugs or a stale build could still diverge — that's what the
+reconciliation and tests in later chapters guard against — but the *arithmetic* can't betray you.)
 
 ### Time as a value
 
@@ -293,13 +301,13 @@ pub const MOVE_QUEUE_CAP: usize = 2;
 the browser predicts at the same pace; the renderer animates a slide over this duration. One constant,
 shared everywhere, so the three can never disagree about how fast a character walks.
 
-`MOVE_QUEUE_CAP` is the other half of the rate limit: each character has a small buffer of pending
-moves, and it can hold at most **2**. The server (we'll see in Milestone 2) drains one per heartbeat
-and *rejects* a new move once the buffer is full. Together, the cap and the cadence mean a character
-advances at most one tile per 200 ms **no matter how fast a client sends input** — so a hostile client
-spamming the move command just fills its own little queue and gets told "no." Rate-limiting falls out
-of the buffer model instead of needing a per-move cooldown check. (That's Bet 1 again: the cap is an
-anti-flood guard against a client you don't trust.)
+`MOVE_QUEUE_CAP` bounds that buffer: each character can hold at most **2** pending moves. The real
+rate limit, though, is the **cadence**: the server (we'll see in Milestone 2) drains one move per
+heartbeat, so a character advances at most one tile per 200 ms **no matter how fast a client sends
+input.** A hostile client spamming the move command can't outrun that — the extra messages just pile
+into a 2-deep buffer (and the append reducer rejects once it's full). Rate-limiting falls out of the
+buffer-and-cadence model instead of needing a per-move cooldown check. (That's Bet 1 again: you design
+the system so a client you don't trust simply *can't* move faster than the tick.)
 
 ## Proving determinism
 

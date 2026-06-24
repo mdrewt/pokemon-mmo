@@ -1,7 +1,7 @@
 # Milestone 11 — Going Multiplayer
 
-**Goal:** the big one — player-to-player **trading**, ranked **PvP battles** with an Elo ladder, and
-**co-op raids**. Make individual monsters genuinely valuable by letting players trade and fight over
+**Goal:** the big one — player-to-player **trading**, ranked **PvP battles** with an Elo-style ladder,
+and **co-op raids**. Make individual monsters genuinely valuable by letting players trade and fight over
 them.
 
 **Where it fits:** monsters are now unique, raised individuals (M6–M10), which is exactly when
@@ -105,9 +105,11 @@ const BATTLE_ACTION_VISIBILITY: Filter =
     Filter::Sql("SELECT * FROM battle_action WHERE chooser_identity = :sender");
 ```
 
-The RLS filter is doing real security work here: it makes each player's pending pick **invisible to the
-other** over the wire. The server (whose reads bypass RLS) sees both, and resolves the turn only once
-*both* have chosen:
+The RLS filter is what's *meant* to keep each player's pending pick from reaching the other over the
+wire. (Same caveat as M6: RLS is experimental in this SpacetimeDB version, so for a competitive ranked
+mode you'd want to confirm it actually filters — or move the picks into a private table — before
+trusting it.) The server (whose reads bypass RLS) sees both, and resolves the turn only once *both*
+have chosen:
 
 ```rust
 fn record_pick(ctx: &ReducerContext, battle: &Battle, skill_id: u32) -> Result<Option<(u32, u32)>, String> {
@@ -133,16 +135,20 @@ turns — both allies choose secretly before the boss acts — which is why the 
 anything PvP-specific.)
 
 > **Why not a unique DB constraint to prevent double-submits**, instead of the in-code `record_pick`
-> check? Because SpacetimeDB *serializes conflicting reducer transactions* — two `submit_action` calls
-> from the same identity can't both observe an empty action set; the second re-runs against the first's
-> committed row and is rejected by the in-code guard. The constraint would add insert-panic semantics
-> for no real gain. (This is the kind of platform-specific reasoning you confirm against the docs, not
-> your instincts.)
+> check? Because SpacetimeDB runs reducers with **serializable isolation** — optimistically (it may run
+> them concurrently via MVCC), but if it detects a serializability conflict it rolls the transaction
+> back and **re-executes** it. So two `submit_action` calls from the same identity can't both commit
+> against an empty action set: the second re-runs against the first's now-committed row and is rejected
+> by the in-code guard. A unique constraint would add insert-panic semantics for no real gain. (This is
+> the kind of platform-specific reasoning you confirm against the docs, not your instincts — which is
+> exactly what we did here.)
 
-## Ranked: a pure Elo update
+## Ranked: an Elo-flavored rating update
 
-A decisive PvP result updates both players' ladder ratings via a pure, integer-only Elo rule (floats
-would break determinism):
+A decisive PvP result updates both players' ladder ratings via a pure, integer-only **Elo-*flavored***
+rule (floats would break determinism). "Flavored," not real Elo: true Elo runs the rating gap through a
+logistic curve to get an expected score; this is a cheap *linear* approximation of that curve — same
+spirit (beat someone stronger, gain more), simpler math, no floats:
 
 ```rust
 pub fn elo_update(winner: i32, loser: i32) -> (i32, i32) {

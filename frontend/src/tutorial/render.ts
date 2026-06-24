@@ -11,7 +11,7 @@
 import { Marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 // Import highlight.js's CORE plus only the grammars the chapters use. The full highlight.js
-// bundle is ~190 languages (~1 MB); registering the eight we actually need keeps the tutorial
+// bundle is ~190 languages (~1 MB); registering only the few we actually need keeps the tutorial
 // route's payload an order of magnitude smaller. (The wrap-up chapter calls out this exact
 // trim as an example of measuring before shipping.)
 import hljs from 'highlight.js/lib/core';

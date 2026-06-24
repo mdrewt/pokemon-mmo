@@ -89,9 +89,9 @@ band" and the game would feel broken.
 | Layer | Tool | Why this one |
 |---|---|---|
 | Shared rules | **Rust** | Compiles to both native (server) and WASM (browser) from one codebase. Strong types let us "make illegal states unrepresentable." |
-| Browser prediction | **WebAssembly** (via `wasm-pack`) | Runs the *same* Rust rule in the browser — compiled, not interpreted, so it's fast and (more importantly) byte-identical to the server. |
-| Backend | **SpacetimeDB 2.6** | A database where your game logic (Rust "reducers") runs *inside* the database, next to the data, in transactions. Clients subscribe to tables and get live updates. It also gives us row-level security for free. |
-| Frontend | **PixiJS v8** + **TypeScript** | A fast 2D WebGL renderer; TypeScript keeps the glue code honest. |
+| Browser prediction | **WebAssembly** (via `wasm-pack`) | Runs the *same* Rust source rule in the browser. The compiled artifacts differ (WASM vs native), but for our integer-only logic they produce **identical results** — which is the whole point. |
+| Backend | **SpacetimeDB 2.6** | A database where your game logic (Rust "reducers") runs *inside* the database, next to the data, in transactions. Clients subscribe to tables and get live updates. It also provides a row-level-security mechanism (still experimental in this version — more on that later). |
+| Frontend | **PixiJS v8** + **TypeScript** | A fast 2D renderer (WebGL, with a WebGPU path in v8); TypeScript keeps the glue code honest. |
 
 If some of those words are unfamiliar (reducer? subscription? WASM?), good — we define each one the
 first time it matters. You do not need to understand the whole table yet.
