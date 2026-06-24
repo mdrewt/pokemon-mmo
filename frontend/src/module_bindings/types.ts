@@ -196,6 +196,14 @@ export const FaintEvent = __t.object("FaintEvent", {
 });
 export type FaintEvent = __Infer<typeof FaintEvent>;
 
+export const Fusion = __t.object("Fusion", {
+  id: __t.u64(),
+  a: __t.u32(),
+  b: __t.u32(),
+  to: __t.u32(),
+});
+export type Fusion = __Infer<typeof Fusion>;
+
 export const Item = __t.object("Item", {
   itemId: __t.u32(),
   name: __t.string(),

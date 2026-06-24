@@ -40,6 +40,7 @@ import ClearQueueReducer from "./clear_queue_reducer";
 import CloseBattleReducer from "./close_battle_reducer";
 import EnqueueMoveReducer from "./enqueue_move_reducer";
 import EvolveMonsterReducer from "./evolve_monster_reducer";
+import FuseMonstersReducer from "./fuse_monsters_reducer";
 import HealPartyReducer from "./heal_party_reducer";
 import JoinGameReducer from "./join_game_reducer";
 import RenameMonsterReducer from "./rename_monster_reducer";
@@ -56,6 +57,7 @@ import TrainMonsterReducer from "./train_monster_reducer";
 import BattleRow from "./battle_table";
 import CharacterRow from "./character_table";
 import ConfigRow from "./config_table";
+import FusionRow from "./fusion_table";
 import ItemRow from "./item_table";
 import MonsterRow from "./monster_table";
 import NpcRow from "./npc_table";
@@ -102,6 +104,17 @@ const tablesSchema = __schema({
       { name: 'config_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ConfigRow),
+  fusion: __table({
+    name: 'fusion',
+    indexes: [
+      { accessor: 'id', name: 'fusion_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'fusion_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, FusionRow),
   item: __table({
     name: 'item',
     indexes: [
@@ -209,6 +222,7 @@ const reducersSchema = __reducers(
   __reducerSchema("close_battle", CloseBattleReducer),
   __reducerSchema("enqueue_move", EnqueueMoveReducer),
   __reducerSchema("evolve_monster", EvolveMonsterReducer),
+  __reducerSchema("fuse_monsters", FuseMonstersReducer),
   __reducerSchema("heal_party", HealPartyReducer),
   __reducerSchema("join_game", JoinGameReducer),
   __reducerSchema("rename_monster", RenameMonsterReducer),

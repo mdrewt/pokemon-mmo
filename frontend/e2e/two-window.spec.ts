@@ -73,6 +73,44 @@ async function fleeIfBattling(page: Page): Promise<void> {
   }
 }
 
+/** Catch exactly one wild monster: fight encounters attempting recruit (with bait when available)
+ *  each turn until the owned-monster count grows, then return. Bounded. Used by the fusion test to
+ *  obtain base-form monsters. */
+async function recruitOne(page: Page): Promise<void> {
+  const count = async () => (await snapshot(page)).monsters.length;
+  const start = await count();
+  let battles = 0;
+  while ((await count()) === start && battles++ < 12) {
+    await page.locator('#app').click();
+    await page.keyboard.press('KeyH'); // heal so the party can fight
+    await expect
+      .poll(async () =>
+        (await snapshot(page)).monsters.filter((m) => m.partySlot !== null).every((m) => m.currentHp > 0),
+      )
+      .toBe(true);
+    await page.keyboard.press('KeyF');
+    await expect.poll(async () => (await snapshot(page)).battle !== null).toBe(true);
+    let guard = 0;
+    while (guard++ < 12) {
+      const g = await snapshot(page);
+      if (!g.battle || g.battle.outcome !== 'Ongoing') break;
+      const before = g.battle.turn;
+      const baitBtn = page.locator('#battle-screen [data-recruit="bait"]');
+      const btn = (await baitBtn.count()) > 0 ? baitBtn : page.locator('#battle-screen [data-recruit="plain"]');
+      await btn.first().click();
+      await expect
+        .poll(async () => {
+          const b = (await snapshot(page)).battle;
+          return b === null || b.outcome !== 'Ongoing' || b.turn > before;
+        })
+        .toBe(true);
+    }
+    const cont = page.locator('#battle-screen').getByText('Continue');
+    if ((await cont.count()) > 0) await cont.click();
+    await expect.poll(async () => (await snapshot(page)).battle).toBeNull();
+  }
+}
+
 /** Wait until prediction has reconciled to authority (no move in flight). Doubles as the
  *  no-desync invariant: if predicted never equals authoritative, this poll times out. */
 async function settle(page: Page): Promise<void> {
@@ -455,67 +493,69 @@ test.describe.serial('two-window integration', () => {
   });
 
   test('a monster evolves once it meets the gate, keeping its identity (M10)', async () => {
-    test.setTimeout(220_000);
-    const starterId = (await snapshot(pageA)).monsters.find((m) => m.partySlot === 0)!.monsterId;
-    const starter = async () =>
-      (await snapshot(pageA)).monsters.find((m) => m.monsterId === starterId)!;
-
-    // Fight a battle to conclusion, attacking with the first skill each turn (wins give the whole
-    // party XP), then dismiss the result.
-    const fightOnce = async (): Promise<void> => {
-      await pageA.locator('#app').click();
-      await pageA.keyboard.press('KeyH'); // heal so the party can fight
-      await expect
-        .poll(async () =>
-          (await snapshot(pageA)).monsters
-            .filter((m) => m.partySlot !== null)
-            .every((m) => m.currentHp > 0),
-        )
-        .toBe(true);
-      await pageA.keyboard.press('KeyF');
-      await expect.poll(async () => (await snapshot(pageA)).battle !== null).toBe(true);
-      let guard = 0;
-      while (guard++ < 25) {
-        const g = await snapshot(pageA);
-        if (!g.battle || g.battle.outcome !== 'Ongoing') break;
-        const before = g.battle.turn;
-        await pageA.locator('#battle-screen [data-skill]').first().click();
-        await expect
-          .poll(async () => {
-            const b = (await snapshot(pageA)).battle;
-            return b === null || b.outcome !== 'Ongoing' || b.turn > before;
-          })
-          .toBe(true);
-      }
-      const cont = pageA.locator('#battle-screen').getByText('Continue');
-      if ((await cont.count()) > 0) await cont.click();
-      await expect.poll(async () => (await snapshot(pageA)).battle).toBeNull();
-    };
-
-    // Grind until the starter meets its (POC-low) evolution gate — the server then marks it eligible.
-    let battles = 0;
-    while ((await starter()).evolvesTo.length === 0 && battles++ < 20) {
-      await fightOnce();
-    }
-    const before = await starter();
-    expect(before.evolvesTo.length, 'starter should become eligible to evolve').toBeGreaterThan(0);
+    // The server marks a monster eligible (evolves_to) once its level + bond meet the gate. The
+    // recruited catch (a base form, level 2-4) already qualifies at the POC-low gate — only base forms
+    // have evolutions, so a non-empty evolves_to identifies one without grinding.
+    const eligible = async () =>
+      (await snapshot(pageA)).monsters.find((m) => m.evolvesTo.length > 0);
+    await expect.poll(async () => (await eligible()) !== undefined).toBe(true);
+    const before = (await eligible())!;
+    const id = before.monsterId;
     const target = before.evolvesTo[0]!;
     expect(before.speciesId).not.toBe(target);
+    const find = async () => (await snapshot(pageA)).monsters.find((m) => m.monsterId === id)!;
 
     // Evolve it from the box.
     await pageA.locator('#app').click();
     await pageA.keyboard.press('KeyB');
     await expect(pageA.locator('#box-screen')).toBeVisible();
-    await pageA.locator(`#box-screen [data-monster-id="${starterId}"]`).click();
+    await pageA.locator(`#box-screen [data-monster-id="${id}"]`).click();
     await expect(pageA.locator('#box-screen')).toContainText('READY TO EVOLVE');
     await pageA.locator(`#box-screen [data-evolve="${target}"]`).click();
-    await expect.poll(async () => (await starter()).speciesId).toBe(target);
+    await expect.poll(async () => (await find()).speciesId).toBe(target);
 
-    // Same individual, evolved: still party slot 0, same id, kept its bond + training.
-    const after = await starter();
-    expect(after.partySlot).toBe(0);
+    // Same individual, evolved: same id + party slot, kept its bond + training.
+    const after = await find();
+    expect(after.partySlot).toBe(before.partySlot);
     expect(after.bond).toBe(before.bond);
     expect(after.trainingTotal).toBe(before.trainingTotal);
+    await pageA.keyboard.press('Escape');
+    await expect(pageA.locator('#box-screen')).toBeHidden();
+  });
+
+  test('two monsters fuse into a stronger offspring, consuming both (M10)', async () => {
+    test.setTimeout(240_000);
+    // Base-form monsters we own (species ids 1-4 are the base/wild forms in the content).
+    const baseMonsters = async () =>
+      (await snapshot(pageA)).monsters.filter((m) => m.speciesId >= 1 && m.speciesId <= 4);
+
+    // Fusion recipes cover every base cross-pair, so we just need two base monsters of DIFFERENT
+    // species. We already own the recruited catch; recruit more until a different-species pair exists.
+    let tries = 0;
+    while (tries++ < 8) {
+      const mons = await baseMonsters();
+      if (mons.length >= 2 && new Set(mons.map((m) => m.speciesId)).size >= 2) break;
+      await recruitOne(pageA);
+    }
+    const mons = await baseMonsters();
+    const a = mons[0]!;
+    const b = mons.find((m) => m.speciesId !== a.speciesId);
+    expect(b, 'should own two base monsters of different species to fuse').toBeTruthy();
+
+    const beforeCount = (await snapshot(pageA)).monsters.length;
+    await pageA.locator('#app').click();
+    await pageA.keyboard.press('KeyB');
+    await expect(pageA.locator('#box-screen')).toBeVisible();
+    await pageA.locator(`#box-screen [data-monster-id="${a.monsterId}"]`).click();
+    await expect(pageA.locator('#box-screen')).toContainText('FUSE');
+    await pageA.locator(`#box-screen [data-fuse="${b!.monsterId}"]`).click();
+
+    // Both parents consumed → net -1 monster, and a fusion-only species (ids 10-15) was created.
+    await expect.poll(async () => (await snapshot(pageA)).monsters.length).toBe(beforeCount - 1);
+    const after = await snapshot(pageA);
+    expect(after.monsters.some((m) => m.speciesId >= 10 && m.speciesId <= 15)).toBe(true);
+    expect(after.monsters.some((m) => m.monsterId === a.monsterId)).toBe(false);
+    expect(after.monsters.some((m) => m.monsterId === b!.monsterId)).toBe(false);
     await pageA.keyboard.press('Escape');
     await expect(pageA.locator('#box-screen')).toBeHidden();
   });

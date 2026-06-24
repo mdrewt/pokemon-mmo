@@ -8,6 +8,7 @@
 import type {
   Battle,
   Character,
+  Fusion,
   Item,
   Monster,
   Player,
@@ -43,6 +44,8 @@ export class AuthoritativeStore {
   readonly skills = new Map<number, Skill>();
   /** Item templates, keyed by itemId. Read-only content. */
   readonly items = new Map<number, Item>();
+  /** Fusion recipes (seeded content): fusing species a + b → species to (order-independent). */
+  readonly fusions: Fusion[] = [];
   /** The caller's owned item stacks, keyed by row id (RLS-scoped to the owner). */
   readonly playerItems = new Map<bigint, PlayerItem>();
   /** Type/affinity chart rows (seeded). */
@@ -91,6 +94,10 @@ export class AuthoritativeStore {
 
   upsertItem(row: Item): void {
     this.items.set(row.itemId, row);
+  }
+
+  upsertFusion(row: Fusion): void {
+    this.fusions.push(row);
   }
 
   upsertPlayerItem(row: PlayerItem): void {

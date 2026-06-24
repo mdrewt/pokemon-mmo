@@ -230,6 +230,16 @@ pub struct Evolution {
     pub min_bond: u16,
 }
 
+/// A fusion recipe (M10): fusing the two parent species (order-independent) produces the offspring
+/// species. Plain `u32` ids so it can derive `SpacetimeType` and ride the server's `fusion` table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
+pub struct FusionRecipe {
+    pub a: u32,
+    pub b: u32,
+    pub to: u32,
+}
+
 /// A species TEMPLATE — pure content authored in RON (see `crate::content`). M6 keeps this lean;
 /// learnsets, evolution, and recruit requirements are added by M7/M8/M10 (grow-the-schema). The
 /// server maps this to its own `species` table row (it contains the `SpeciesId` newtype).

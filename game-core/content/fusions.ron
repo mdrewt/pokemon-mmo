@@ -1,0 +1,13 @@
+// Fusion recipes (data, not code) — M10. Fusing the two parent species (order-independent) produces
+// the offspring species. Embedded via include_str! and parsed by `game_core::load_fusions`; the
+// server seeds these into the `fusion` table and `fuse_monsters` looks one up. All six base-form
+// cross-pairs are covered, each making a distinct fusion-only species (ids 10-15, obtainable ONLY by
+// fusing). `a`/`b`/`to` are species ids; a != b and all must exist in species.ron.
+[
+    (a: 1, b: 2, to: 10),
+    (a: 1, b: 3, to: 11),
+    (a: 1, b: 4, to: 12),
+    (a: 2, b: 3, to: 13),
+    (a: 2, b: 4, to: 14),
+    (a: 3, b: 4, to: 15),
+]

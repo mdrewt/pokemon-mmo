@@ -13,14 +13,15 @@
 
 use game_core::{
     apply_care, apply_move, apply_training, attempt_recruit as recruit_succeeds, battle_xp_reward,
-    derive_stats, eligible_evolutions, encounter_triggers, level_bounds, load_encounters,
-    load_items, load_skills, load_species, load_type_chart, npc_decide, pick_best_skill, poc_map,
-    recruit_chance, resolve_enemy_turn, resolve_player_swap, resolve_turn, roll_individuality,
-    roll_starter, xp_for_level, ActionState, Affinity, BattleEvent, BattleMonster, BattleOutcome,
-    BattleSide, BattleState, Bond, Category, CharacterState, Direction, Effectiveness,
-    EncounterTable, Evolution, Level, Millis, MonsterInstance, MoveInput, NpcParams, Potential,
-    Skill as CoreSkill, Species as CoreSpecies, SpeciesId, Stat, StatBlock, Temperament, TileMap,
-    TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
+    derive_stats, eligible_evolutions, encounter_triggers, find_fusion, fuse_offspring,
+    level_bounds, load_encounters, load_fusions, load_items, load_skills, load_species,
+    load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance, resolve_enemy_turn,
+    resolve_player_swap, resolve_turn, roll_individuality, roll_starter, xp_for_level, ActionState,
+    Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide, BattleState, Bond, Category,
+    CharacterState, Direction, Effectiveness, EncounterTable, Evolution, FusionRecipe, Level,
+    Millis, MonsterInstance, MoveInput, NpcParams, Potential, Skill as CoreSkill,
+    Species as CoreSpecies, SpeciesId, Stat, StatBlock, Temperament, TileMap, TilePos, Training,
+    TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, Table};
@@ -184,6 +185,19 @@ pub struct Item {
     /// `game_core::Item`.
     pub train_stat: Option<Stat>,
     pub train_amount: u16,
+}
+
+/// Fusion recipes, seeded at init from the game-core registry. Public read-only content so the client
+/// can show valid fusion partners (a data lookup, not a duplicated rule). Mirrors
+/// `game_core::FusionRecipe`; fusing species `a` + `b` (order-independent) yields species `to`.
+#[spacetimedb::table(name = fusion, public)]
+pub struct Fusion {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub a: u32,
+    pub b: u32,
+    pub to: u32,
 }
 
 /// A player's owned quantity of an item. Public so the owner's client shows counts; RLS-scoped to the
@@ -517,6 +531,35 @@ fn caller_monster(ctx: &ReducerContext, monster_id: u64) -> Result<Monster, Stri
 fn consume_one(ctx: &ReducerContext, mut stack: PlayerItem) {
     stack.quantity -= 1;
     ctx.db.player_item().id().update(stack);
+}
+
+/// Reconstruct the in-memory `MonsterInstance` from a stored row — the inverse of `monster_row` for
+/// the individuality fields fusion inherits (genes, temperament, bond).
+fn monster_to_instance(m: &Monster) -> MonsterInstance {
+    MonsterInstance {
+        species_id: SpeciesId(m.species_id),
+        nickname: (!m.nickname.is_empty()).then(|| m.nickname.clone()),
+        level: Level(m.level),
+        xp: Xp(m.xp),
+        potential: m.potential,
+        temperament: m.temperament,
+        training: m.training,
+        bond: Bond(m.bond),
+        current_hp: m.current_hp,
+    }
+}
+
+/// Rebuild the in-memory fusion recipe list from the seeded `fusion` rows (the table is the cache).
+fn fusions_from_db(ctx: &ReducerContext) -> Vec<FusionRecipe> {
+    ctx.db
+        .fusion()
+        .iter()
+        .map(|f| FusionRecipe {
+            a: f.a,
+            b: f.b,
+            to: f.to,
+        })
+        .collect()
 }
 
 // --- Battle helpers (marshaling + delegate to game-core) ------------------------------------
@@ -869,6 +912,14 @@ pub fn init(ctx: &ReducerContext) {
             train_amount: it.train_amount,
         });
     }
+    for r in load_fusions().expect("embedded fusion content must be valid") {
+        ctx.db.fusion().insert(Fusion {
+            id: 0,
+            a: r.a,
+            b: r.b,
+            to: r.to,
+        });
+    }
 
     let (entity_id, pos) = spawn_character(ctx, SPRITE_NPC);
     ctx.db.npc().insert(Npc {
@@ -1203,6 +1254,44 @@ pub fn evolve_monster(
     monster.species_id = to_species_id;
     refresh_monster_stats(ctx, &mut monster); // new species → new base/derived + fresh evolves_to
     ctx.db.monster().monster_id().update(monster);
+    Ok(())
+}
+
+/// Fuse two of the caller's monsters into a stronger offspring (M10): the offspring inherits the
+/// better genes of each parent (game-core rule) and BOTH parents are consumed — all in one
+/// transaction, so it's atomic. Validates ownership of both, that they're distinct, and that a recipe
+/// exists for their species pair (rejects otherwise).
+#[spacetimedb::reducer]
+pub fn fuse_monsters(ctx: &ReducerContext, monster_a: u64, monster_b: u64) -> Result<(), String> {
+    if monster_a == monster_b {
+        return Err("pick two different monsters to fuse".to_string());
+    }
+    let a = caller_monster(ctx, monster_a)?;
+    let b = caller_monster(ctx, monster_b)?;
+
+    let offspring_id = find_fusion(&fusions_from_db(ctx), a.species_id, b.species_id)
+        .ok_or("those two monsters can't be fused")?;
+    let offspring_species = ctx
+        .db
+        .species()
+        .species_id()
+        .find(offspring_id)
+        .ok_or("fusion target species missing")?;
+
+    let inst = fuse_offspring(
+        SpeciesId(offspring_id),
+        &monster_to_instance(&a),
+        &monster_to_instance(&b),
+    );
+    // Consume both parents, then create the offspring (one reducer = one transaction = atomic).
+    ctx.db.monster().monster_id().delete(monster_a);
+    ctx.db.monster().monster_id().delete(monster_b);
+    ctx.db.monster().insert(monster_row(
+        ctx.sender,
+        &core_species(&offspring_species),
+        &inst,
+        None,
+    ));
     Ok(())
 }
 

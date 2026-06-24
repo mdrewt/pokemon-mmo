@@ -227,6 +227,8 @@ export class BoxScreen {
     panel.append(statBlock);
     if (m.evolvesTo.length > 0) panel.append(this.#evolveControls(m));
     panel.append(this.#raiseControls(m));
+    const partners = this.#net.fusionPartners(m);
+    if (partners.length > 0) panel.append(this.#fusionControls(m, partners));
 
     // Rename
     const renameRow = document.createElement('form');
@@ -356,6 +358,31 @@ export class BoxScreen {
       b.dataset.evolve = String(speciesId); // test hook for the e2e
       b.style.background = '#4a7a2a';
       b.onclick = () => this.#net.evolveMonster(m.monsterId, speciesId);
+      row.append(b);
+    }
+    wrap.append(label, row);
+    return wrap;
+  }
+
+  /** Fusion: list owned monsters that form a recipe with this one (a data lookup), each showing the
+   *  offspring. Fusing consumes BOTH parents — the offspring inherits the better genes of each. */
+  #fusionControls(
+    m: Monster,
+    partners: { partner: Monster; offspringSpeciesId: number }[],
+  ): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:6px;';
+    const label = document.createElement('span');
+    label.textContent = 'FUSE (consumes both)';
+    label.style.cssText = LABEL_STYLE;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+    for (const { partner, offspringSpeciesId } of partners) {
+      const offspring = this.#net.species(offspringSpeciesId)?.name ?? `#${offspringSpeciesId}`;
+      const b = this.#button(`+ ${this.#displayName(partner)} → ${offspring}`);
+      b.dataset.fuse = String(partner.monsterId); // test hook for the e2e
+      b.style.background = '#5a3a78';
+      b.onclick = () => this.#net.fuseMonsters(m.monsterId, partner.monsterId);
       row.append(b);
     }
     wrap.append(label, row);
