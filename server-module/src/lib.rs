@@ -12,15 +12,15 @@
 //! `game_core::Millis`. Syntax is for `spacetimedb` crate 1.12.0 (CLI 2.6): `name =`, `ctx.sender`.
 
 use game_core::{
-    apply_move, attempt_recruit as recruit_succeeds, battle_xp_reward, derive_stats,
-    encounter_triggers, level_bounds, load_encounters, load_items, load_skills, load_species,
-    load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance, resolve_enemy_turn,
-    resolve_player_swap, resolve_turn, roll_individuality, roll_starter, xp_for_level, ActionState,
-    Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide, BattleState, Bond, Category,
-    CharacterState, Direction, Effectiveness, EncounterTable, Level, Millis, MonsterInstance,
-    MoveInput, NpcParams, Potential, Skill as CoreSkill, Species as CoreSpecies, SpeciesId,
-    StatBlock, Temperament, TileMap, TilePos, Training, TypeChart, Xp, MAX_VARIANCE_ROLL,
-    MOVE_QUEUE_CAP, STEP_MS,
+    apply_care, apply_move, apply_training, attempt_recruit as recruit_succeeds, battle_xp_reward,
+    derive_stats, encounter_triggers, level_bounds, load_encounters, load_items, load_skills,
+    load_species, load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance,
+    resolve_enemy_turn, resolve_player_swap, resolve_turn, roll_individuality, roll_starter,
+    xp_for_level, ActionState, Affinity, BattleEvent, BattleMonster, BattleOutcome, BattleSide,
+    BattleState, Bond, Category, CharacterState, Direction, Effectiveness, EncounterTable, Level,
+    Millis, MonsterInstance, MoveInput, NpcParams, Potential, Skill as CoreSkill,
+    Species as CoreSpecies, SpeciesId, Stat, StatBlock, Temperament, TileMap, TilePos, Training,
+    TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, Table};
@@ -43,8 +43,14 @@ const ENCOUNTER_ZONE: u32 = 0;
 /// The bait item id (mirrors `items.ron`) and how many a player is granted on first join.
 const BAIT_ITEM_ID: u32 = 1;
 const STARTER_BAIT_QTY: u32 = 5;
+/// How many of each training food a player is granted on first join (enough to feel the divergence).
+const STARTER_FOOD_QTY: u32 = 3;
 /// Bond a freshly-recruited monster starts with (a touch above a hatchling — you befriended it).
 const RECRUIT_BOND: u16 = 25;
+/// Active care: minimum gap between `care_for_monster` calls, and the bond it grants (active-only
+/// raising — a deliberate, cooldown-gated action, never an idle tick).
+const CARE_COOLDOWN_MS: i64 = 30_000;
+const CARE_BOND_GAIN: u16 = 5;
 
 // --- Tables --------------------------------------------------------------------------------
 
@@ -170,8 +176,12 @@ pub struct Item {
     #[primary_key]
     pub item_id: u32,
     pub name: String,
-    /// Recruit-chance bonus in permille when used during a recruit attempt.
+    /// Recruit-chance bonus in permille when used during a recruit attempt (bait).
     pub recruit_bonus: u16,
+    /// The stat this food trains (`None` = not food), and the investment it grants. Mirrors
+    /// `game_core::Item`.
+    pub train_stat: Option<Stat>,
+    pub train_amount: u16,
 }
 
 /// A player's owned quantity of an item. Public so the owner's client shows counts; RLS-scoped to the
@@ -245,6 +255,9 @@ pub struct Monster {
     pub current_hp: u16,
     pub derived: StatBlock,
     pub party_slot: Option<u8>,
+    /// Milliseconds since epoch of the last `care_for_monster` (0 = never). Gates the care cooldown
+    /// — active-only raising, never an idle accrual.
+    pub last_care_at_ms: i64,
 }
 
 /// Row-level security: a client only ever sees its OWN monsters over the subscription. The `monster`
@@ -414,6 +427,7 @@ fn monster_row(
         current_hp: derived.hp,
         derived,
         party_slot,
+        last_care_at_ms: 0, // never cared for yet → first care is immediately allowed
     }
 }
 
@@ -435,7 +449,8 @@ fn grant_starter(ctx: &ReducerContext, owner: Identity) {
         .insert(monster_row(owner, &core, &inst, Some(0)));
 }
 
-/// Grant a player their first-join bait, once (returning players keep what they have).
+/// Grant a player their first-join items, once (returning players keep what they have): recruit bait
+/// plus a few of each training food so the raising loop is immediately playable.
 fn grant_starter_items(ctx: &ReducerContext, owner: Identity) {
     if ctx.db.player_item().owner_identity().filter(owner).count() > 0 {
         return;
@@ -446,6 +461,21 @@ fn grant_starter_items(ctx: &ReducerContext, owner: Identity) {
         item_id: BAIT_ITEM_ID,
         quantity: STARTER_BAIT_QTY,
     });
+    let foods: Vec<u32> = ctx
+        .db
+        .item()
+        .iter()
+        .filter(|i| i.train_stat.is_some())
+        .map(|i| i.item_id)
+        .collect();
+    for item_id in foods {
+        ctx.db.player_item().insert(PlayerItem {
+            id: 0,
+            owner_identity: owner,
+            item_id,
+            quantity: STARTER_FOOD_QTY,
+        });
+    }
 }
 
 /// Look up a monster owned by the caller, or an error (used by ownership-checked monster reducers).
@@ -621,8 +651,29 @@ fn persist_party_hp(ctx: &ReducerContext, battle: &Battle) {
     }
 }
 
-/// Award XP to each of the caller's party monsters on a win: bump xp, recompute level/progress/
-/// derived stats via game-core (HP is NOT restored — it persists). Returns whether any leveled up.
+/// Recompute a monster's level/progress/`derived` columns from its CURRENT xp, potential, training,
+/// and temperament (call after any change to those — an XP gain or training). HP is not restored: it
+/// persists, only clamped down if the new max is lower (it never is here). The single place the
+/// stored-but-derived columns are refreshed.
+fn refresh_monster_stats(ctx: &ReducerContext, m: &mut Monster) {
+    if let Some(sp) = ctx.db.species().species_id().find(m.species_id) {
+        let (level, xp_floor, xp_next, derived) = level_fields(
+            &core_species(&sp),
+            m.xp,
+            &m.potential,
+            &m.training,
+            m.temperament,
+        );
+        m.level = level;
+        m.xp_floor = xp_floor;
+        m.xp_next = xp_next;
+        m.current_hp = m.current_hp.min(derived.hp);
+        m.derived = derived;
+    }
+}
+
+/// Award XP to each of the caller's party monsters on a win: bump xp, recompute derived stats via
+/// game-core (HP is NOT restored — it persists). Returns whether any leveled up.
 fn award_battle_xp(ctx: &ReducerContext, owner: Identity, reward: u32) -> bool {
     let party: Vec<Monster> = ctx
         .db
@@ -635,21 +686,7 @@ fn award_battle_xp(ctx: &ReducerContext, owner: Identity, reward: u32) -> bool {
     for mut m in party {
         let before = m.level;
         m.xp = m.xp.saturating_add(reward);
-        if let Some(sp) = ctx.db.species().species_id().find(m.species_id) {
-            let (level, xp_floor, xp_next, derived) = level_fields(
-                &core_species(&sp),
-                m.xp,
-                &m.potential,
-                &m.training,
-                m.temperament,
-            );
-            m.level = level;
-            m.xp_floor = xp_floor;
-            m.xp_next = xp_next;
-            // HP is not restored on level-up — it persists; a level-up only raises the max.
-            m.current_hp = m.current_hp.min(derived.hp);
-            m.derived = derived;
-        }
+        refresh_monster_stats(ctx, &mut m);
         any_leveled |= m.level > before;
         ctx.db.monster().monster_id().update(m);
     }
@@ -801,6 +838,8 @@ pub fn init(ctx: &ReducerContext) {
             item_id: it.id,
             name: it.name,
             recruit_bonus: it.recruit_bonus,
+            train_stat: it.train_stat,
+            train_amount: it.train_amount,
         });
     }
 
@@ -1050,6 +1089,55 @@ pub fn set_party_slot(
     }
 
     monster.party_slot = slot;
+    ctx.db.monster().monster_id().update(monster);
+    Ok(())
+}
+
+/// Feed one of the caller's monsters a training food (item `item_id`), focusing growth into the
+/// food's stat. Validates ownership, that the item is food the caller actually has, and that the stat
+/// has training headroom (the game-core rule rejects an already-maxed stat) — then consumes one food
+/// and recomputes the monster's stats. The visible "raising shapes growth" loop.
+#[spacetimedb::reducer]
+pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Result<(), String> {
+    let mut monster = caller_monster(ctx, monster_id)?;
+
+    let item = ctx
+        .db
+        .item()
+        .item_id()
+        .find(item_id)
+        .ok_or("no such item")?;
+    let stat = item.train_stat.ok_or("that item is not training food")?;
+
+    let mut stack = ctx
+        .db
+        .player_item()
+        .owner_identity()
+        .filter(ctx.sender)
+        .find(|pi| pi.item_id == item_id && pi.quantity > 0)
+        .ok_or("you don't have that food")?;
+
+    // Apply the rule first — if the stat has no headroom it rejects, and we DON'T spend the food.
+    monster.training = apply_training(monster.training, stat, item.train_amount)?;
+    refresh_monster_stats(ctx, &mut monster);
+
+    stack.quantity -= 1;
+    ctx.db.player_item().id().update(stack);
+    ctx.db.monster().monster_id().update(monster);
+    Ok(())
+}
+
+/// Spend deliberate time with one of the caller's monsters to raise its bond. Active-only: gated by a
+/// per-monster cooldown (`CARE_COOLDOWN_MS`), never an idle accrual. Validates ownership + cooldown.
+#[spacetimedb::reducer]
+pub fn care_for_monster(ctx: &ReducerContext, monster_id: u64) -> Result<(), String> {
+    let mut monster = caller_monster(ctx, monster_id)?;
+    let now = now_ms(ctx) as i64;
+    if now - monster.last_care_at_ms < CARE_COOLDOWN_MS {
+        return Err("this monster needs a little time before you care for it again".to_string());
+    }
+    monster.bond = apply_care(Bond(monster.bond), CARE_BOND_GAIN).0;
+    monster.last_care_at_ms = now;
     ctx.db.monster().monster_id().update(monster);
     Ok(())
 }

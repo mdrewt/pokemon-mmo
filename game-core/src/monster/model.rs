@@ -10,8 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::combat::SkillId;
 
 /// The lean stat set (KISS — expand only if battle depth demands it). `Special` is the single
-/// magic/special stat. `Stat` itself is internal (indexing/temperament); it is not a table column.
+/// magic/special stat. Derives `SpacetimeType` so it can be a column (M9 training food targets a
+/// `Stat`); used for indexing/temperament/training elsewhere.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "spacetimedb", derive(spacetimedb::SpacetimeType))]
 pub enum Stat {
     Hp,
     Attack,
@@ -154,6 +156,11 @@ pub struct Training {
 }
 
 impl Training {
+    /// Inclusive per-stat training cap, and the cap on the sum across all stats (EV-like, gen-3
+    /// values). The total cap forces a *choice* of build — you can't max everything.
+    pub const PER_STAT_MAX: u16 = 252;
+    pub const TOTAL_MAX: u16 = 510;
+
     pub fn get(&self, stat: Stat) -> u16 {
         match stat {
             Stat::Hp => self.hp,
@@ -162,6 +169,21 @@ impl Training {
             Stat::Special => self.special,
             Stat::Speed => self.speed,
         }
+    }
+
+    pub fn set(&mut self, stat: Stat, value: u16) {
+        match stat {
+            Stat::Hp => self.hp = value,
+            Stat::Attack => self.attack = value,
+            Stat::Defense => self.defense = value,
+            Stat::Special => self.special = value,
+            Stat::Speed => self.speed = value,
+        }
+    }
+
+    /// Sum of all per-stat investment (for the total cap).
+    pub fn total(&self) -> u16 {
+        self.hp + self.attack + self.defense + self.special + self.speed
     }
 }
 
@@ -172,6 +194,11 @@ impl Training {
 /// Loyalty/affection, grows with active use + care (M9). Battle/evolution gates read it later.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Bond(pub u16);
+
+impl Bond {
+    /// Inclusive max bond (a freshly-tamed monster starts well below this).
+    pub const MAX: u16 = 255;
+}
 
 /// 1..=`MAX`. Newtype so a raw integer can't be mistaken for a level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

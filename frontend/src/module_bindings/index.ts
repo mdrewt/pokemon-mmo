@@ -35,6 +35,7 @@ import {
 
 // Import all reducer arg schemas
 import AttemptRecruitReducer from "./attempt_recruit_reducer";
+import CareForMonsterReducer from "./care_for_monster_reducer";
 import ClearQueueReducer from "./clear_queue_reducer";
 import CloseBattleReducer from "./close_battle_reducer";
 import EnqueueMoveReducer from "./enqueue_move_reducer";
@@ -46,6 +47,7 @@ import SetPartySlotReducer from "./set_party_slot_reducer";
 import StartBattleReducer from "./start_battle_reducer";
 import SubmitActionReducer from "./submit_action_reducer";
 import SwapActiveReducer from "./swap_active_reducer";
+import TrainMonsterReducer from "./train_monster_reducer";
 
 // Import all procedure arg schemas
 
@@ -201,6 +203,7 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("attempt_recruit", AttemptRecruitReducer),
+  __reducerSchema("care_for_monster", CareForMonsterReducer),
   __reducerSchema("clear_queue", ClearQueueReducer),
   __reducerSchema("close_battle", CloseBattleReducer),
   __reducerSchema("enqueue_move", EnqueueMoveReducer),
@@ -212,6 +215,7 @@ const reducersSchema = __reducers(
   __reducerSchema("start_battle", StartBattleReducer),
   __reducerSchema("submit_action", SubmitActionReducer),
   __reducerSchema("swap_active", SwapActiveReducer),
+  __reducerSchema("train_monster", TrainMonsterReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

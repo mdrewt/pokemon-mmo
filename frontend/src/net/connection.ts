@@ -45,6 +45,8 @@ export interface NetHandle {
   battle(): Battle | undefined;
   /** The caller's total bait count (any owned item with a recruit bonus) — data-driven, no magic id. */
   baitCount(): number;
+  /** The caller's owned training food (item id + name + count), for the box Raise UI. */
+  foodItems(): { itemId: number; name: string; quantity: number }[];
 
   joinGame(name: string): void;
   enqueueMove(input: MoveInput, seq: bigint): void;
@@ -52,6 +54,8 @@ export interface NetHandle {
   clearQueue(seq: bigint): void;
   renameMonster(monsterId: bigint, name: string): void;
   setPartySlot(monsterId: bigint, slot: number | undefined): void;
+  trainMonster(monsterId: bigint, itemId: number): void;
+  careForMonster(monsterId: bigint): void;
   startBattle(): void;
   submitAction(skillId: number): void;
   swapActive(teamIndex: number): void;
@@ -244,6 +248,19 @@ export function connect(): Promise<NetHandle> {
         }
         return total;
       },
+      foodItems: () => {
+        const hex = identity?.toHexString();
+        if (!hex) return [];
+        const out: { itemId: number; name: string; quantity: number }[] = [];
+        for (const pi of store.playerItems.values()) {
+          if (pi.ownerIdentity.toHexString() !== hex || pi.quantity <= 0) continue;
+          const item = store.items.get(pi.itemId);
+          if (item?.trainStat !== undefined) {
+            out.push({ itemId: pi.itemId, name: item.name, quantity: pi.quantity });
+          }
+        }
+        return out.sort((a, b) => a.itemId - b.itemId);
+      },
       joinGame: (name: string) => {
         void conn.reducers.joinGame({ name });
       },
@@ -261,6 +278,12 @@ export function connect(): Promise<NetHandle> {
       },
       setPartySlot: (monsterId: bigint, slot: number | undefined) => {
         void conn.reducers.setPartySlot({ monsterId, slot });
+      },
+      trainMonster: (monsterId: bigint, itemId: number) => {
+        void conn.reducers.trainMonster({ monsterId, itemId });
+      },
+      careForMonster: (monsterId: bigint) => {
+        void conn.reducers.careForMonster({ monsterId });
       },
       startBattle: () => {
         void conn.reducers.startBattle({});

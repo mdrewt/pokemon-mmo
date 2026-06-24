@@ -97,6 +97,10 @@ pub fn load_items() -> Result<Vec<Item>, String> {
         if !seen.insert(i.id) {
             return Err(format!("duplicate item id {}", i.id));
         }
+        // A training food must grant a positive amount, or using it would be a no-op.
+        if i.is_food() && i.train_amount == 0 {
+            return Err(format!("food item {} has zero train_amount", i.id));
+        }
     }
     Ok(items)
 }
@@ -186,6 +190,26 @@ mod tests {
     #[test]
     fn content_cross_references_are_valid() {
         validate_content().expect("every species learnset must reference real skills");
+    }
+
+    #[test]
+    fn embedded_items_include_bait_and_food() {
+        let items = load_items().expect("items.ron must parse + validate");
+        // Recruit bait (id 1) is not food; it has a recruit bonus.
+        let lure = items.iter().find(|i| i.id == 1).expect("Lure present");
+        assert!(!lure.is_food());
+        assert!(lure.recruit_bonus > 0);
+        // There is at least one training food per stat-ish; each has a positive amount + a target.
+        use crate::monster::Stat;
+        let food: Vec<_> = items.iter().filter(|i| i.is_food()).collect();
+        assert!(food.len() >= 5, "a food per stat");
+        for f in &food {
+            assert!(f.train_amount > 0);
+        }
+        assert!(
+            food.iter().any(|f| f.train_stat == Some(Stat::Attack)),
+            "an Attack food exists"
+        );
     }
 
     #[test]

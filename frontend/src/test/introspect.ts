@@ -46,6 +46,9 @@ export interface GameSnapshot {
     partySlot: number | null;
     currentHp: number;
     maxHp: number;
+    /** Raising state (M9): loyalty + total training invested across stats. */
+    bond: number;
+    trainingTotal: number;
   }[];
   /** Total monster rows this client has RECEIVED (not filtered). RLS scopes this to the owner, so
    *  it should equal the owned count — a regression guard against the monster table leaking others'
@@ -131,6 +134,9 @@ export function installIntrospection(
         partySlot: m.partySlot ?? null,
         currentHp: m.currentHp,
         maxHp: m.derived.hp,
+        bond: m.bond,
+        trainingTotal:
+          m.training.hp + m.training.attack + m.training.defense + m.training.special + m.training.speed,
       })),
       visibleMonsterCount: net.store.monsters.size,
       baitCount: net.baitCount(),
