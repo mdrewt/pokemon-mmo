@@ -106,7 +106,7 @@ const BATTLE_ACTION_VISIBILITY: Filter =
 ```
 
 The RLS filter is what's *meant* to keep each player's pending pick from reaching the other over the
-wire. (Same caveat as M6: RLS is experimental in this SpacetimeDB version,<sup>[2](https://spacetimedb.com/docs/rls/)</sup>
+wire. (Same caveat as M6: RLS is experimental in this SpacetimeDB version,<sup>[2](https://spacetimedb.com/docs/how-to/rls/)</sup>
 so for a competitive ranked mode you'd want to confirm it actually filters — or move the picks into a
 private table — before trusting it.) The server (whose reads bypass RLS) sees both, and resolves the turn only once *both*
 have chosen:
@@ -213,5 +213,5 @@ One chapter left — let's reflect honestly on what we built and where it goes n
 ## References
 
 1. Wikipedia — ["Elo rating system"](https://en.wikipedia.org/wiki/Elo_rating_system). *(Real Elo's logistic expected-score model, which our integer rule approximates.)*
-2. SpacetimeDB Docs — ["Row Level Security"](https://spacetimedb.com/docs/rls/). *(The experimental `client_visibility_filter` that hides each player's pending pick.)*
+2. SpacetimeDB Docs — ["Row Level Security"](https://spacetimedb.com/docs/how-to/rls/). *(The experimental `client_visibility_filter` that hides each player's pending pick.)*
 3. SpacetimeDB Docs — ["Reducers"](https://spacetimedb.com/docs/functions/reducers/). *(Serializable isolation, concurrent (MVCC) execution, and re-execution on conflict — why the in-code double-submit guard suffices.)*

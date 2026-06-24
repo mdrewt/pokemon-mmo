@@ -14,7 +14,7 @@ marshal → render → predict → reconcile → route.**
 ## Connect and subscribe
 
 The frontend opens a connection to SpacetimeDB and **subscribes** to the tables it needs. A
-subscription is a live query: you get every current row, and every future change, pushed to you.<sup>[1](https://spacetimedb.com/docs/subscriptions/semantics/)</sup>
+subscription is a live query: you get every current row, and every future change, pushed to you.<sup>[1](https://spacetimedb.com/docs/clients/subscriptions)</sup>
 
 ```typescript
 const conn = DbConnection.builder()
@@ -343,7 +343,7 @@ automatically.
 
 ## References
 
-1. SpacetimeDB Docs — ["Subscription Semantics"](https://spacetimedb.com/docs/subscriptions/semantics/). *(The subscribe-once, server-pushes-diffs model.)*
+1. SpacetimeDB Docs — ["Subscriptions"](https://spacetimedb.com/docs/clients/subscriptions). *(The subscribe-once, server-pushes-diffs model.)*
 2. Gabriel Gambetta — ["Entity Interpolation"](https://www.gabrielgambetta.com/entity-interpolation.html). *(Smoothly interpolating *other* entities without clock sync.)*
 3. PixiJS — ["Performance Tips"](https://pixijs.com/8.x/guides/concepts/performance-tips) (v8). *(Minimizing per-frame work, draw calls, and resource churn — why we pool and mutate sprites.)*
 4. Gabriel Gambetta — ["Client-Side Prediction and Server Reconciliation"](https://www.gabrielgambetta.com/client-side-prediction-server-reconciliation.html). *(The reset-and-replay reconciliation our `Predictor` implements.)*

@@ -202,7 +202,7 @@ visibility mode, completing the set:
 | `public` + RLS filter | `monster`, `battle`, `player_item` (items arrive in M8) | the owner (intended) |
 
 > **An honest caveat — RLS is experimental.** In SpacetimeDB 2.6, row-level security
-> (`client_visibility_filter`) is an *experimental* feature:<sup>[6](https://spacetimedb.com/docs/rls/)</sup>
+> (`client_visibility_filter`) is an *experimental* feature:<sup>[6](https://spacetimedb.com/docs/how-to/rls/)</sup>
 > you must opt into it, the official docs warn the "API may change in future releases," and the version
 > of the Rust bindings this project pins even labels the filter as not yet fully enforced. So treat RLS as **defense-in-depth, not a hardened
 > boundary** — verify it actually filters on *your* SpacetimeDB version before relying on it. When data
@@ -253,4 +253,4 @@ You've laid the individuality foundation. Now let's make those monsters fight.
 3. Bulbapedia — ["Individual values"](https://bulbapedia.bulbagarden.net/wiki/Individual_values). *(The 0–31 per-stat "genes" this `Potential` mirrors.)*
 4. Bulbapedia — ["Nature"](https://bulbapedia.bulbagarden.net/wiki/Nature). *(Natures nudging a stat pair — the model behind `Temperament`.)*
 5. Bulbapedia — ["Stat"](https://bulbapedia.bulbagarden.net/wiki/Stat). *(The Generation III+ stat formula `derive_stats` implements.)*
-6. SpacetimeDB Docs — ["Row Level Security"](https://spacetimedb.com/docs/rls/). *(`client_visibility_filter`; the experimental status the caveat is about.)*
+6. SpacetimeDB Docs — ["Row Level Security"](https://spacetimedb.com/docs/how-to/rls/). *(`client_visibility_filter`; the experimental status the caveat is about.)*
