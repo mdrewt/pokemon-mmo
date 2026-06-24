@@ -3,7 +3,7 @@
 // collection regresses to a plain array (the typeRelations/fusions bug class).
 
 import { describe, expect, it } from 'vitest';
-import type { Fusion, TypeRelationRow } from '../module_bindings/types';
+import type { Fusion, Item, Skill, TypeRelationRow } from '../module_bindings/types';
 import { AuthoritativeStore } from './store';
 
 describe('store content tables are idempotent on re-subscribe', () => {
@@ -26,5 +26,27 @@ describe('store content tables are idempotent on re-subscribe', () => {
     store.upsertFusion(recipe);
     store.upsertFusion(recipe);
     expect(store.fusions.size).toBe(1);
+  });
+
+  it('re-inserting the same skill keeps one entry', () => {
+    const store = new AuthoritativeStore();
+    const skill: Skill = {
+      skillId: 1,
+      name: 'Tackle',
+      affinity: { tag: 'Neutral' },
+      category: { tag: 'Physical' },
+      power: 40,
+    };
+    store.upsertSkill(skill);
+    store.upsertSkill(skill);
+    expect(store.skills.size).toBe(1);
+  });
+
+  it('re-inserting the same item keeps one entry', () => {
+    const store = new AuthoritativeStore();
+    const item: Item = { itemId: 1, name: 'Lure', recruitBonus: 100, trainStat: undefined, trainAmount: 0 };
+    store.upsertItem(item);
+    store.upsertItem(item);
+    expect(store.items.size).toBe(1);
   });
 });

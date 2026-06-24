@@ -462,6 +462,26 @@ mod tests {
     }
 
     #[test]
+    fn player_wins_speed_ties() {
+        // Equal speed + a one-shot KO on both sides: the player must strike first (ties go to the
+        // player — the `>=` at resolve_turn). An accidental `>` would let the enemy act and flip the
+        // outcome, so this pins initiative on the tie boundary.
+        let mut killer = tackle();
+        killer.power = 9999;
+        let state = BattleState::new(
+            BattleSide::new(vec![mon(100, 100)]),
+            BattleSide::new(vec![mon(100, 100)]),
+        );
+        let (next, _events) = resolve_turn(&state, &killer, &killer, &empty_chart(), 15, 15);
+        assert_eq!(next.outcome, BattleOutcome::PlayerWon);
+        assert_eq!(
+            next.player.active_ref().current_hp,
+            100,
+            "player is untouched on a speed tie"
+        );
+    }
+
+    #[test]
     fn both_act_and_lose_hp_when_neither_faints() {
         let state = BattleState::new(
             BattleSide::new(vec![mon(100, 200)]),
