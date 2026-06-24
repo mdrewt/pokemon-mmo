@@ -206,7 +206,8 @@ export class BoxScreen {
       this.#infoGrid([
         ['Temperament', m.temperament.tag],
         ['Bond', `${m.bond} / ${BOND_MAX}`],
-        ['HP', `${m.currentHp} / ${d.hp}`],
+        // HP has no stat bar, so surface its training here so HP food gives visible feedback too.
+        ['HP', t.hp > 0 ? `${m.currentHp} / ${d.hp}  +${t.hp}` : `${m.currentHp} / ${d.hp}`],
         ['Training', `${trainingTotal(t)} / ${TRAINING_TOTAL_MAX}`],
       ]),
       this.#xpProgress(m),

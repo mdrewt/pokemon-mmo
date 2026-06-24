@@ -1138,6 +1138,10 @@ pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Res
 #[spacetimedb::reducer]
 pub fn care_for_monster(ctx: &ReducerContext, monster_id: u64) -> Result<(), String> {
     let mut monster = caller_monster(ctx, monster_id)?;
+    // Already maxed → reject rather than burn the cooldown on a no-op gain.
+    if monster.bond >= Bond::MAX {
+        return Err("this monster is already completely devoted to you".to_string());
+    }
     let now = now_ms(ctx) as i64;
     if now - monster.last_care_at_ms < CARE_COOLDOWN_MS {
         return Err("this monster needs a little time before you care for it again".to_string());
