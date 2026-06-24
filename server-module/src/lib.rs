@@ -506,12 +506,11 @@ fn grant_item(ctx: &ReducerContext, owner: Identity, item_id: u32, qty: u32) {
     }
 }
 
-/// Grant a player their first-join items, once (returning players keep what they have): some of each
-/// item, derived from content — bait (anything with a recruit bonus) and training food. No magic ids.
+/// Grant a player their first-join items: some of each item, derived from content — bait (anything
+/// with a recruit bonus) and training food. No magic ids. The caller decides first-join (see
+/// `join_game`); this does NOT self-guard on item rows, which are not a reliable first-join signal
+/// (a player can spend every item to zero).
 fn grant_starter_items(ctx: &ReducerContext, owner: Identity) {
-    if ctx.db.player_item().owner_identity().filter(owner).count() > 0 {
-        return;
-    }
     let starter: Vec<(u32, u32)> = ctx
         .db
         .item()
@@ -996,6 +995,11 @@ pub fn join_game(ctx: &ReducerContext, name: String) -> Result<(), String> {
         return Err("already joined".to_string());
     }
 
+    // True first join, decided by the PERMANENT monster set (items can be spent to zero, so item rows
+    // are not a reliable first-join signal — gating items on them would re-grant after a player used
+    // everything and reconnected). Monsters are never deleted from a player, so this is stable.
+    let first_join = ctx.db.monster().owner_identity().filter(ctx.sender).count() == 0;
+
     let (entity_id, _pos) = spawn_character(ctx, SPRITE_PLAYER);
     ctx.db.player().insert(Player {
         identity: ctx.sender, // identity ONLY from the framework, never a client field
@@ -1005,9 +1009,11 @@ pub fn join_game(ctx: &ReducerContext, name: String) -> Result<(), String> {
         last_input_seq: 0,
     });
 
-    // First-ever join grants a starter monster + some bait; returning players keep what they have.
-    grant_starter(ctx, ctx.sender);
-    grant_starter_items(ctx, ctx.sender);
+    // First-ever join grants a starter monster + starter items; returning players keep what they have.
+    if first_join {
+        grant_starter(ctx, ctx.sender);
+        grant_starter_items(ctx, ctx.sender);
+    }
     Ok(())
 }
 
