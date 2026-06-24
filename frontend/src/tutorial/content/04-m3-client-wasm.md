@@ -9,8 +9,12 @@ the browser for *prediction*. Same code, three homes.
 
 ## What WebAssembly buys us here
 
-WebAssembly (WASM) is a binary format that runs in the browser at near-native speed. `wasm-pack` takes
-a Rust crate and produces a `.wasm` file plus JavaScript "glue" that lets you call exported Rust
+WebAssembly (WASM) is a compiled binary format the browser runs with fast, predictable performance —
+typically within a small multiple of native, though "near-native" is an optimistic ceiling, not a
+guarantee, and for tiny calls the cost of crossing the JS↔WASM boundary can eat the win. But raw speed
+isn't really why we reach for it here (a hand-written JS movement function would be plenty fast). The
+reason is determinism: the browser runs the *identical compiled rule* the server runs. `wasm-pack`
+takes a Rust crate and produces a `.wasm` file plus JavaScript "glue" that lets you call exported Rust
 functions from TypeScript. So we can take the `apply_move` we already wrote and tested, compile it to
 WASM, and call it from the game loop. **The browser's prediction isn't a *reimplementation* of the
 movement rule — it's the identical compiled rule.** That's the entire point, and it's why this crate

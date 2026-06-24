@@ -207,11 +207,14 @@ pub fn movement_tick(ctx: &ReducerContext, _schedule: MovementTickSchedule) -> R
 
 ### How it works, and the security in it
 
-- **The scheduler guard.** A scheduled reducer is still, technically, a reducer a malicious client
-  could try to call directly — which would let them tick the world faster. So the very first line is
-  `if ctx.sender != ctx.identity()`: `ctx.identity()` is the *module's own* identity (the scheduler
-  runs as the module), and `ctx.sender` is whoever called. If they differ, a client is calling it —
-  reject. **Every scheduler-only reducer needs this guard.**
+- **The scheduler guard.** On the SpacetimeDB version this project pins, a scheduled reducer is still,
+  technically, a reducer a malicious client could try to call directly — which would let them tick the
+  world faster. So the very first line is `if ctx.sender != ctx.identity()`: `ctx.identity()` is the
+  *module's own* identity (the scheduler runs as the module), and `ctx.sender` is whoever called. If
+  they differ, a client is calling it — reject. (Heads-up: newer SpacetimeDB 2.x makes scheduled
+  reducers *private by default*, so there this guard becomes belt-and-suspenders rather than mandatory,
+  and the module-identity accessor is being renamed — exactly the kind of version-specific detail to
+  confirm against the docs for your version. On *this* crate, keep the guard.)
 - **Drain one, call the rule.** For each character with a queued move, it pops one move and calls
   `apply_move(...)` — the same pure function the browser will run for prediction. The server gets time
   from `now_ms(ctx)` (derived from `ctx.timestamp`, the authoritative clock) and passes it in, exactly
@@ -291,8 +294,9 @@ hand-written, so the two sides can't drift. **Every schema change means re-runni
 
 - **Taking identity from an argument.** `fn do_thing(ctx, who: Identity, ...)` is a security hole — a
   client passes any `who` it likes. Always use `ctx.sender`.
-- **Forgetting the scheduler guard.** Without `ctx.sender != ctx.identity()`, a client can call your
-  tick directly. Every scheduled reducer needs it.
+- **Forgetting the scheduler guard.** On this crate version, without `ctx.sender != ctx.identity()` a
+  client can call your tick directly — so guard every scheduler-only reducer. (Newer SpacetimeDB makes
+  them private by default; check what your version does.)
 - **Clamping instead of rejecting.** It's tempting to silently fix bad input ("the queue's full, I'll
   just drop the oldest"). Don't — return `Err`. A strict server is a debuggable, attack-resistant
   server. (This is "Postel's Law, inverted": be *strict* in what you accept.)

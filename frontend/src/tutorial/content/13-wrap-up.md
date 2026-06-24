@@ -81,8 +81,9 @@ And to extend the game yourself, here are tractable next steps, roughly in order
    turn. Good practice with scheduled reducers and terminal-state handling.
 4. **The battle depth layer** — weakness-tempo combos, team auras, multi-active 3v3. Pure `game-core`
    work with the best test-to-risk ratio in the project.
-5. **A second map** — the big one. Build the Tiled pipeline, add per-zone subscriptions, and cash in
-   the `map_id` index that's been waiting since Milestone 6.
+5. **A second map** — the big one. Build the Tiled pipeline, add per-zone subscriptions, and add the
+   `map_id` index that's been *planned* since Milestone 6 (the `map_id` column exists on the row today,
+   but it isn't indexed yet — that's part of the work).
 
 ## Go build something
 

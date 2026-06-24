@@ -188,15 +188,25 @@ const MONSTER_VISIBILITY: Filter =
     Filter::Sql("SELECT * FROM monster WHERE owner_identity = :sender");
 ```
 
-`:sender` is the subscribing client's identity. The result: a client's subscription only ever contains
-*its own* monster rows — the hidden individuality never goes out on the wire to anyone else. This is the
-third visibility mode, completing the set:
+`:sender` is the subscribing client's identity. The intent: a client's subscription should only ever
+contain *its own* monster rows, so the hidden individuality stays off the wire. This is the third
+visibility mode, completing the set:
 
 | Mode | Example | Who sees it |
 |---|---|---|
 | `public` | `character`, `species` | everyone |
 | private (no `public`) | `encounter` | only the server |
-| `public` + RLS filter | `monster`, `battle`, `player_item` (items arrive in M8) | only the owner |
+| `public` + RLS filter | `monster`, `battle`, `player_item` (items arrive in M8) | the owner (intended) |
+
+> **An honest caveat — RLS is experimental.** In SpacetimeDB 2.6, row-level security
+> (`client_visibility_filter`) is an *experimental* feature: you must opt into it, the official docs
+> warn the "API may change in future releases," and the version of the Rust bindings this project pins
+> even labels the filter as not yet fully enforced. So treat RLS as **defense-in-depth, not a hardened
+> boundary** — verify it actually filters on *your* SpacetimeDB version before relying on it. When data
+> must *never* leak (a server secret), the unambiguous tool is a **private (non-`public`) table** like
+> `encounter`, which the client can't subscribe to at all. This project uses RLS for owner-scoped data
+> (monsters, battles) because the stakes are "a rival could scout your team," not "a password leaks" —
+> a deliberate, documented risk trade-off, not a guarantee.
 
 ## Common pitfalls
 
@@ -206,8 +216,9 @@ third visibility mode, completing the set:
   on conflict — re-parsing each call is wasted work, and tempts you toward a forbidden module global.)
 - **Trusting client-sent stats.** The client reads `derived`; it never computes or sends it. Re-derive
   on the server on every change.
-- **Forgetting the RLS filter on a table with hidden data.** A `public` `monster` table *without* the
-  filter would broadcast everyone's genes to everyone. The filter is not optional.
+- **Forgetting the RLS filter on a table with hidden data.** A `public` `monster` table *without* a
+  filter broadcasts everyone's genes to everyone — and even *with* the filter, remember RLS is
+  experimental here, so anything that genuinely must not leak belongs in a private table.
 - **Hard-coding "which species can be starters."** Derive it from the content so new content
   classifies itself.
 

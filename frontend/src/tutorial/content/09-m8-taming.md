@@ -186,7 +186,8 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
 
 ## Checkpoint
 
-Walk into the tall grass and a wild encounter opens. Whittle the wild's HP down and watch the recruit
-odds you'd compute rise (weaken more → catch more). Throw bait, attempt a recruit: on success the exact
-wild — same genes — lands in your box at full HP; on failure it "breaks free" and strikes back. The
-**find → tame** loop is complete and fully authoritative. Next, we make raising those monsters matter.
+Walk into the tall grass and a wild encounter opens. Whittle the wild's HP down and confirm that
+recruiting succeeds more reliably as it weakens (the odds live on the server — the UI just nudges you
+to "lower its HP first" rather than showing a number). Throw bait, attempt a recruit: on success the
+exact wild — same genes — lands in your box at full HP; on failure it "breaks free" and strikes back.
+The **find → tame** loop is complete and fully authoritative. Next, we make raising those monsters matter.

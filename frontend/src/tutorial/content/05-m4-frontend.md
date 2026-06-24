@@ -316,7 +316,7 @@ demo" from "works."
 
 - **Canvas2D or DOM instead of PixiJS.** DOM is trivially easy to start but doesn't animate pixel art
   smoothly and buckles under many moving sprites. Canvas2D is fine but you'd hand-roll sprite batching
-  and pooling. **Verdict: PixiJS (WebGL) is the right tool for many animated sprites** — though for a
+  and pooling. **Verdict: PixiJS (WebGL/WebGPU) is the right tool for many animated sprites** — though for a
   handful of entities, Canvas2D would honestly have been simpler and plenty fast. We're building for
   the "many players" case.
 - **A game framework (Phaser, Kaboom).** They bundle physics, tweens, scene management — lovely for a
