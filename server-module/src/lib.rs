@@ -24,7 +24,9 @@ use game_core::{
     TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
 };
 use spacetimedb::rand::Rng;
-use spacetimedb::{client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, Table};
+use spacetimedb::{
+    client_visibility_filter, Filter, Identity, ReducerContext, ScheduleAt, SpacetimeType, Table,
+};
 use std::time::Duration;
 
 // --- Tuning constants ----------------------------------------------------------------------
@@ -292,6 +294,56 @@ const MONSTER_VISIBILITY: Filter =
 const BATTLE_VISIBILITY: Filter =
     Filter::Sql("SELECT * FROM battle WHERE player_identity = :sender");
 
+/// A monster's revealable "card" — the display info shown to a trade counterparty (who, by the nature
+/// of a trade, is about to own it). Snapshotted into a `trade_offer` so the other party can see the
+/// offered monster WITHOUT relaxing the per-owner `monster` RLS. Display-only: the authoritative swap
+/// always re-reads the live `monster` row by id and re-checks ownership.
+#[derive(SpacetimeType, Clone)]
+pub struct MonsterCard {
+    pub monster_id: u64,
+    pub species_id: u32,
+    pub nickname: String,
+    pub level: u8,
+    pub derived: StatBlock,
+    pub potential: Potential,
+    pub temperament: Temperament,
+    pub bond: u16,
+}
+
+/// Stage of a directed, dual-consent trade. The initiator offers a monster; the recipient responds
+/// with theirs; the initiator confirms — only then does the atomic swap run.
+#[derive(SpacetimeType, Clone, PartialEq)]
+pub enum TradeStatus {
+    /// Initiator offered; waiting for the recipient to put up their monster.
+    AwaitingRecipient,
+    /// Recipient responded; waiting for the initiator to confirm (or cancel).
+    AwaitingInitiator,
+}
+
+/// A pending monster trade between two players. Public for the SDK but RLS-scoped to the two parties.
+/// Each offered monster is ESCROWED — `reject_if_in_trade` blocks every other monster-mutating reducer
+/// from touching it — until the trade confirms (atomic swap) or is cancelled (releases the lock).
+#[spacetimedb::table(name = trade_offer, public)]
+pub struct TradeOffer {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub from_identity: Identity,
+    #[index(btree)]
+    pub to_identity: Identity,
+    pub from_card: MonsterCard,
+    /// `None` until the recipient responds with their monster.
+    pub to_card: Option<MonsterCard>,
+    pub status: TradeStatus,
+    pub created_at_ms: i64,
+}
+
+/// Only the two parties to a trade can see it (the cards reveal monster individuality).
+#[client_visibility_filter]
+const TRADE_OFFER_VISIBILITY: Filter =
+    Filter::Sql("SELECT * FROM trade_offer WHERE from_identity = :sender OR to_identity = :sender");
+
 /// Drives the movement loop. A row with an interval `scheduled_at` makes the scheduler call
 /// `movement_tick` every `STEP_MS`.
 #[spacetimedb::table(name = movement_tick_schedule, scheduled(movement_tick))]
@@ -556,6 +608,49 @@ fn caller_monster(ctx: &ReducerContext, monster_id: u64) -> Result<Monster, Stri
 fn reject_if_in_battle(ctx: &ReducerContext) -> Result<(), String> {
     if ctx.db.battle().player_identity().find(ctx.sender).is_some() {
         return Err("you can't do that during a battle".to_string());
+    }
+    Ok(())
+}
+
+/// Build a trade-display snapshot of a monster (revealed to the trade counterparty). Display-only —
+/// the swap re-reads the live row, so a stale card can never transfer the wrong monster.
+fn monster_card(m: &Monster) -> MonsterCard {
+    MonsterCard {
+        monster_id: m.monster_id,
+        species_id: m.species_id,
+        nickname: m.nickname.clone(),
+        level: m.level,
+        derived: m.derived,
+        potential: m.potential,
+        temperament: m.temperament,
+        bond: m.bond,
+    }
+}
+
+/// Reject a monster-mutating action on a monster escrowed in a pending trade. The offered rows are
+/// committed to the trade — evolving/fusing/training/re-slotting/renaming one mid-offer would let a
+/// player alter (or back out of) what the counterparty agreed to, or duplicate it across the swap.
+/// Mirrors `reject_if_in_battle`.
+///
+/// `monster_id` is always one the CALLER owns (every call site runs `caller_monster` first), and a
+/// monster can only be escrowed in an offer its owner is party to (you must own it to put it up, and
+/// it's locked from transfer while offered) — so we scan only the caller's own offers via the
+/// `from_identity`/`to_identity` indexes, never the whole table.
+fn reject_if_in_trade(ctx: &ReducerContext, monster_id: u64) -> Result<(), String> {
+    let escrowed = ctx
+        .db
+        .trade_offer()
+        .from_identity()
+        .filter(ctx.sender)
+        .chain(ctx.db.trade_offer().to_identity().filter(ctx.sender))
+        .any(|t| {
+            t.from_card.monster_id == monster_id
+                || t.to_card
+                    .as_ref()
+                    .is_some_and(|c| c.monster_id == monster_id)
+        });
+    if escrowed {
+        return Err("that monster is part of a pending trade".to_string());
     }
     Ok(())
 }
@@ -990,6 +1085,19 @@ pub fn client_disconnected(ctx: &ReducerContext) {
     }
     // End any active battle (monsters persist; the transient battle does not).
     ctx.db.battle().player_identity().delete(ctx.sender);
+    // Release any pending trades this player was party to: the escrow lock lives in the offer row, so
+    // deleting the offers unlocks both monsters (and an offer made TO a now-gone player won't linger).
+    let stale: Vec<u64> = ctx
+        .db
+        .trade_offer()
+        .from_identity()
+        .filter(ctx.sender)
+        .chain(ctx.db.trade_offer().to_identity().filter(ctx.sender))
+        .map(|t| t.id)
+        .collect();
+    for id in stale {
+        ctx.db.trade_offer().id().delete(id);
+    }
 }
 
 /// Join with a display name: validate, spawn at a random walkable tile, link the identity.
@@ -1177,6 +1285,7 @@ fn maybe_trigger_encounter(ctx: &ReducerContext, entity_id: u64) {
 #[spacetimedb::reducer]
 pub fn rename_monster(ctx: &ReducerContext, monster_id: u64, name: String) -> Result<(), String> {
     let mut monster = caller_monster(ctx, monster_id)?;
+    reject_if_in_trade(ctx, monster_id)?; // keep the offered card honest
     monster.nickname = validate_name(&name)?;
     ctx.db.monster().monster_id().update(monster);
     Ok(())
@@ -1193,6 +1302,7 @@ pub fn set_party_slot(
 ) -> Result<(), String> {
     reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
+    reject_if_in_trade(ctx, monster_id)?;
 
     if let Some(s) = slot {
         if s >= PARTY_SIZE {
@@ -1225,6 +1335,7 @@ pub fn set_party_slot(
 pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Result<(), String> {
     reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
+    reject_if_in_trade(ctx, monster_id)?;
 
     let item = ctx
         .db
@@ -1257,6 +1368,7 @@ pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Res
 pub fn care_for_monster(ctx: &ReducerContext, monster_id: u64) -> Result<(), String> {
     reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
+    reject_if_in_trade(ctx, monster_id)?;
     // Already maxed → reject rather than burn the cooldown on a no-op gain.
     if monster.bond >= Bond::MAX {
         return Err("this monster is already completely devoted to you".to_string());
@@ -1284,6 +1396,7 @@ pub fn evolve_monster(
 ) -> Result<(), String> {
     reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
+    reject_if_in_trade(ctx, monster_id)?;
     let species = ctx
         .db
         .species()
@@ -1318,6 +1431,8 @@ pub fn fuse_monsters(ctx: &ReducerContext, monster_a: u64, monster_b: u64) -> Re
     }
     let a = caller_monster(ctx, monster_a)?;
     let b = caller_monster(ctx, monster_b)?;
+    reject_if_in_trade(ctx, monster_a)?;
+    reject_if_in_trade(ctx, monster_b)?;
 
     let offspring_id = find_fusion(&fusions_from_db(ctx), a.species_id, b.species_id)
         .ok_or("those two monsters can't be fused")?;
@@ -1345,6 +1460,171 @@ pub fn fuse_monsters(ctx: &ReducerContext, monster_a: u64, monster_b: u64) -> Re
         &inst,
         slot,
     ));
+    Ok(())
+}
+
+// --- Trading (M11.1): directed, dual-consent, escrowed monster trades -----------------------------
+
+/// Cap on a player's simultaneously-open offers (as initiator) — anti-flood, and keeps the
+/// `reject_if_in_trade` scan tiny.
+const MAX_OPEN_TRADE_OFFERS: usize = 16;
+
+/// Offer one of the caller's monsters to another player. Locks the offered monster (escrow) and waits
+/// for the recipient to put up theirs (`respond_trade`). The caller is `ctx.sender`; `to_identity` is
+/// the chosen counterparty (a parameter — you pick who to trade with, but never who you *are*).
+#[spacetimedb::reducer]
+pub fn offer_trade(
+    ctx: &ReducerContext,
+    to_identity: Identity,
+    offered_monster_id: u64,
+) -> Result<(), String> {
+    if to_identity == ctx.sender {
+        return Err("you can't trade with yourself".to_string());
+    }
+    if ctx.db.player().identity().find(to_identity).is_none() {
+        return Err("no such player".to_string());
+    }
+    if ctx
+        .db
+        .trade_offer()
+        .from_identity()
+        .filter(ctx.sender)
+        .count()
+        >= MAX_OPEN_TRADE_OFFERS
+    {
+        return Err("you have too many open trade offers".to_string());
+    }
+    // Must own it, not be mid-battle (it could be a combatant), and it can't already be escrowed.
+    let monster = caller_monster(ctx, offered_monster_id)?;
+    reject_if_in_battle(ctx)?;
+    reject_if_in_trade(ctx, offered_monster_id)?;
+
+    ctx.db.trade_offer().insert(TradeOffer {
+        id: 0, // auto_inc
+        from_identity: ctx.sender,
+        to_identity,
+        from_card: monster_card(&monster),
+        to_card: None,
+        status: TradeStatus::AwaitingRecipient,
+        created_at_ms: now_ms(ctx) as i64,
+    });
+    Ok(())
+}
+
+/// As the recipient of an offer, put up one of YOUR monsters in return. Locks it and flips the offer
+/// to await the initiator's confirmation.
+#[spacetimedb::reducer]
+pub fn respond_trade(
+    ctx: &ReducerContext,
+    offer_id: u64,
+    offered_monster_id: u64,
+) -> Result<(), String> {
+    let mut offer = ctx
+        .db
+        .trade_offer()
+        .id()
+        .find(offer_id)
+        .ok_or("trade not found")?;
+    if offer.to_identity != ctx.sender {
+        return Err("this isn't your trade to respond to".to_string());
+    }
+    if offer.status != TradeStatus::AwaitingRecipient {
+        return Err("this trade isn't awaiting your response".to_string());
+    }
+    let monster = caller_monster(ctx, offered_monster_id)?;
+    reject_if_in_battle(ctx)?;
+    reject_if_in_trade(ctx, offered_monster_id)?;
+
+    offer.to_card = Some(monster_card(&monster));
+    offer.status = TradeStatus::AwaitingInitiator;
+    ctx.db.trade_offer().id().update(offer);
+    Ok(())
+}
+
+/// As the initiator, confirm the trade once the recipient has responded. Re-validates BOTH monsters
+/// against authoritative state (live ownership, not the snapshot), then swaps ownership atomically
+/// (one reducer = one transaction). Both monsters move to the box; stats are re-derived defensively.
+#[spacetimedb::reducer]
+pub fn confirm_trade(ctx: &ReducerContext, offer_id: u64) -> Result<(), String> {
+    let offer = ctx
+        .db
+        .trade_offer()
+        .id()
+        .find(offer_id)
+        .ok_or("trade not found")?;
+    if offer.from_identity != ctx.sender {
+        return Err("this isn't your trade to confirm".to_string());
+    }
+    if offer.status != TradeStatus::AwaitingInitiator {
+        return Err("the other player hasn't responded yet".to_string());
+    }
+    let to_card = offer
+        .to_card
+        .as_ref()
+        .ok_or("the other player hasn't responded yet")?;
+
+    // Neither party may be mid-battle: a traded monster could be a combatant in a snapshotted party.
+    if ctx
+        .db
+        .battle()
+        .player_identity()
+        .find(offer.from_identity)
+        .is_some()
+        || ctx
+            .db
+            .battle()
+            .player_identity()
+            .find(offer.to_identity)
+            .is_some()
+    {
+        return Err("a participant is in a battle".to_string());
+    }
+
+    // Re-read both live rows and re-check ownership — the snapshot is display-only and may be stale.
+    let mut from_mon = ctx
+        .db
+        .monster()
+        .monster_id()
+        .find(offer.from_card.monster_id)
+        .ok_or("the offered monster is gone")?;
+    let mut to_mon = ctx
+        .db
+        .monster()
+        .monster_id()
+        .find(to_card.monster_id)
+        .ok_or("the other monster is gone")?;
+    if from_mon.owner_identity != offer.from_identity || to_mon.owner_identity != offer.to_identity
+    {
+        return Err("a monster changed owner; trade cancelled".to_string());
+    }
+
+    // Atomic swap: each monster moves to the other player's box, stats re-derived for consistency.
+    from_mon.owner_identity = offer.to_identity;
+    from_mon.party_slot = None;
+    to_mon.owner_identity = offer.from_identity;
+    to_mon.party_slot = None;
+    refresh_monster_stats(ctx, &mut from_mon);
+    refresh_monster_stats(ctx, &mut to_mon);
+    ctx.db.monster().monster_id().update(from_mon);
+    ctx.db.monster().monster_id().update(to_mon);
+    ctx.db.trade_offer().id().delete(offer_id);
+    Ok(())
+}
+
+/// Cancel/decline a pending trade (either party may). Deleting the offer releases the escrow lock on
+/// both monsters.
+#[spacetimedb::reducer]
+pub fn cancel_trade(ctx: &ReducerContext, offer_id: u64) -> Result<(), String> {
+    let offer = ctx
+        .db
+        .trade_offer()
+        .id()
+        .find(offer_id)
+        .ok_or("trade not found")?;
+    if offer.from_identity != ctx.sender && offer.to_identity != ctx.sender {
+        return Err("this isn't your trade".to_string());
+    }
+    ctx.db.trade_offer().id().delete(offer_id);
     Ok(())
 }
 

@@ -35,15 +35,19 @@ import {
 
 // Import all reducer arg schemas
 import AttemptRecruitReducer from "./attempt_recruit_reducer";
+import CancelTradeReducer from "./cancel_trade_reducer";
 import CareForMonsterReducer from "./care_for_monster_reducer";
 import ClearQueueReducer from "./clear_queue_reducer";
 import CloseBattleReducer from "./close_battle_reducer";
+import ConfirmTradeReducer from "./confirm_trade_reducer";
 import EnqueueMoveReducer from "./enqueue_move_reducer";
 import EvolveMonsterReducer from "./evolve_monster_reducer";
 import FuseMonstersReducer from "./fuse_monsters_reducer";
 import HealPartyReducer from "./heal_party_reducer";
 import JoinGameReducer from "./join_game_reducer";
+import OfferTradeReducer from "./offer_trade_reducer";
 import RenameMonsterReducer from "./rename_monster_reducer";
+import RespondTradeReducer from "./respond_trade_reducer";
 import SetMoveReducer from "./set_move_reducer";
 import SetPartySlotReducer from "./set_party_slot_reducer";
 import StartBattleReducer from "./start_battle_reducer";
@@ -65,6 +69,7 @@ import PlayerRow from "./player_table";
 import PlayerItemRow from "./player_item_table";
 import SkillRow from "./skill_table";
 import SpeciesRow from "./species_table";
+import TradeOfferRow from "./trade_offer_table";
 import TypeRelationRow from "./type_relation_table";
 
 /** Type-only namespace exports for generated type groups. */
@@ -201,6 +206,23 @@ const tablesSchema = __schema({
       { name: 'species_species_id_key', constraint: 'unique', columns: ['speciesId'] },
     ],
   }, SpeciesRow),
+  trade_offer: __table({
+    name: 'trade_offer',
+    indexes: [
+      { accessor: 'from_identity', name: 'trade_offer_from_identity_idx_btree', algorithm: 'btree', columns: [
+        'fromIdentity',
+      ] },
+      { accessor: 'id', name: 'trade_offer_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'to_identity', name: 'trade_offer_to_identity_idx_btree', algorithm: 'btree', columns: [
+        'toIdentity',
+      ] },
+    ],
+    constraints: [
+      { name: 'trade_offer_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, TradeOfferRow),
   type_relation: __table({
     name: 'type_relation',
     indexes: [
@@ -217,15 +239,19 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("attempt_recruit", AttemptRecruitReducer),
+  __reducerSchema("cancel_trade", CancelTradeReducer),
   __reducerSchema("care_for_monster", CareForMonsterReducer),
   __reducerSchema("clear_queue", ClearQueueReducer),
   __reducerSchema("close_battle", CloseBattleReducer),
+  __reducerSchema("confirm_trade", ConfirmTradeReducer),
   __reducerSchema("enqueue_move", EnqueueMoveReducer),
   __reducerSchema("evolve_monster", EvolveMonsterReducer),
   __reducerSchema("fuse_monsters", FuseMonstersReducer),
   __reducerSchema("heal_party", HealPartyReducer),
   __reducerSchema("join_game", JoinGameReducer),
+  __reducerSchema("offer_trade", OfferTradeReducer),
   __reducerSchema("rename_monster", RenameMonsterReducer),
+  __reducerSchema("respond_trade", RespondTradeReducer),
   __reducerSchema("set_move", SetMoveReducer),
   __reducerSchema("set_party_slot", SetPartySlotReducer),
   __reducerSchema("start_battle", StartBattleReducer),

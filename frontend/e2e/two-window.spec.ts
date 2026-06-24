@@ -588,6 +588,78 @@ test.describe.serial('two-window integration', () => {
     await expect(pageA.locator('#box-screen')).toBeHidden();
   });
 
+  test('a monster trade swaps ownership atomically between two players (M11.1)', async () => {
+    test.setTimeout(60_000);
+    // Start both windows from the overworld.
+    for (const page of [pageA, pageB]) {
+      await page.locator('#app').click();
+      await page.keyboard.press('Escape');
+    }
+
+    const idHexB = (await snapshot(pageB)).identityHex!;
+    // Each window picks one of ITS OWN monsters (RLS hides the other's), captured from its own snapshot.
+    const mA = (await snapshot(pageA)).monsters[0]!.monsterId;
+    const mB = (await snapshot(pageB)).monsters[0]!.monsterId;
+    const aOwns = async (id: string) =>
+      (await snapshot(pageA)).monsters.some((m) => m.monsterId === id);
+    const bOwns = async (id: string) =>
+      (await snapshot(pageB)).monsters.some((m) => m.monsterId === id);
+    const aCount = (await snapshot(pageA)).monsters.length;
+    const bCount = (await snapshot(pageB)).monsters.length;
+
+    // A opens Trade and offers mA to B.
+    await pageA.keyboard.press('KeyT');
+    await expect(pageA.locator('#trade-screen')).toBeVisible();
+    await pageA.locator('[data-trade-target]').selectOption(idHexB);
+    await pageA.locator('[data-trade-monster]').selectOption(mA);
+    await pageA.locator('[data-trade-send]').click();
+
+    // B receives the offer (RLS scopes it to the two parties). Escrow holds mA on A — no transfer yet.
+    await expect.poll(async () => (await snapshot(pageB)).tradeOffers.length).toBe(1);
+    const offerOnB = (await snapshot(pageB)).tradeOffers[0]!;
+    expect(offerOnB.status).toBe('AwaitingRecipient');
+    expect(offerOnB.fromMonsterId).toBe(mA);
+    expect(await aOwns(mA)).toBe(true);
+    const offerId = offerOnB.id;
+
+    // B responds with mB.
+    await pageB.keyboard.press('KeyT');
+    await expect(pageB.locator('#trade-screen')).toBeVisible();
+    await pageB
+      .locator(`[data-trade-offer="${offerId}"] [data-trade-respond-monster]`)
+      .selectOption(mB);
+    await pageB.locator(`[data-trade-offer="${offerId}"] [data-trade-respond]`).click();
+
+    // A sees the response (AwaitingInitiator, toMonsterId == mB); still no transfer until A confirms.
+    await expect
+      .poll(async () => (await snapshot(pageA)).tradeOffers[0]?.status)
+      .toBe('AwaitingInitiator');
+    expect((await snapshot(pageA)).tradeOffers[0]!.toMonsterId).toBe(mB);
+    // No transfer before confirm: each still owns its own monster and has NOT received the other's.
+    expect(await aOwns(mA)).toBe(true);
+    expect(await bOwns(mB)).toBe(true);
+    expect(await bOwns(mA)).toBe(false);
+    expect(await aOwns(mB)).toBe(false);
+
+    // A confirms → atomic swap.
+    await pageA.locator(`[data-trade-offer="${offerId}"] [data-trade-confirm]`).click();
+
+    // The offer is gone in both windows, and ownership swapped with counts conserved (no dupe/loss).
+    await expect.poll(async () => (await snapshot(pageA)).tradeOffers.length).toBe(0);
+    await expect.poll(async () => (await snapshot(pageB)).tradeOffers.length).toBe(0);
+    await expect.poll(() => aOwns(mB)).toBe(true);
+    await expect.poll(() => bOwns(mA)).toBe(true);
+    expect(await aOwns(mA)).toBe(false);
+    expect(await bOwns(mB)).toBe(false);
+    expect((await snapshot(pageA)).monsters.length).toBe(aCount);
+    expect((await snapshot(pageB)).monsters.length).toBe(bCount);
+    // The received monster lands in the box (party slot cleared on transfer).
+    expect((await snapshot(pageA)).monsters.find((m) => m.monsterId === mB)!.partySlot).toBeNull();
+
+    await pageA.keyboard.press('Escape');
+    await pageB.keyboard.press('Escape');
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

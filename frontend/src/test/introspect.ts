@@ -59,6 +59,15 @@ export interface GameSnapshot {
   visibleMonsterCount: number;
   /** The caller's total bait count (consumed when recruiting with bait). */
   baitCount: number;
+  /** Pending trade offers this client is party to (M11.1), for trade-flow assertions. */
+  tradeOffers: {
+    id: string;
+    fromHex: string;
+    toHex: string;
+    fromMonsterId: string;
+    toMonsterId: string | null;
+    status: string;
+  }[];
   /** The active battle, or null. */
   battle: {
     outcome: string;
@@ -143,6 +152,14 @@ export function installIntrospection(
       })),
       visibleMonsterCount: net.store.monsters.size,
       baitCount: net.baitCount(),
+      tradeOffers: net.tradeOffers().map((t) => ({
+        id: t.id.toString(),
+        fromHex: t.fromIdentity.toHexString(),
+        toHex: t.toIdentity.toHexString(),
+        fromMonsterId: t.fromCard.monsterId.toString(),
+        toMonsterId: t.toCard ? t.toCard.monsterId.toString() : null,
+        status: t.status.tag,
+      })),
       battle: (() => {
         const b = net.battle();
         if (!b) return null;

@@ -16,6 +16,7 @@ import { DebugHud } from './ui/hud';
 import { ScreenManager } from './ui/screen';
 import { BoxScreen } from './ui/box';
 import { BattleScreen } from './ui/battle';
+import { TradeScreen } from './ui/trade';
 import { characterToPredictedBaseline, moveQueueToWasm, wasmToSdkMoveInput } from './convert';
 import { installIntrospection } from './test/introspect';
 import type { WasmFacing } from './wasm';
@@ -107,11 +108,14 @@ async function bootstrap(): Promise<void> {
   const screen = new ScreenManager();
   const box = new BoxScreen(net);
   const battle = new BattleScreen(net);
+  const trade = new TradeScreen(net);
   screen.onChange((s) => {
     box.hide();
     battle.hide();
+    trade.hide();
     if (s === 'box') box.show();
     else if (s === 'battle') battle.show();
+    else if (s === 'trade') trade.show();
     if (s !== 'overworld') {
       if (predictor) net.clearQueue(predictor.clearQueue());
       committedDir = null;
@@ -127,7 +131,7 @@ async function bootstrap(): Promise<void> {
 
   // A small always-visible controls hint so the overworld actions are discoverable.
   const hint = document.createElement('div');
-  hint.textContent = '[F] Fight   ·   [B] Box   ·   [H] Heal';
+  hint.textContent = '[F] Fight   ·   [B] Box   ·   [T] Trade   ·   [H] Heal';
   hint.style.cssText =
     'position:fixed;left:12px;bottom:12px;padding:6px 10px;border-radius:6px;background:rgba(10,12,20,0.7);' +
     'color:#cfd6e6;font:12px system-ui,sans-serif;z-index:800;pointer-events:none;';
@@ -141,18 +145,24 @@ async function bootstrap(): Promise<void> {
     if (!isWasmReady()) return;
     tryInitPredictor();
 
-    // Battle is fully server-driven (no prediction, no dependency on the own-character row). Handle it
-    // BEFORE the movement gates so keyboard flee works even when a battle opens before the predictor or
-    // own row exist (e.g. right after a reconnect) — otherwise the full-screen overlay traps the player
-    // with a dead Escape key (skill/recruit/swap still come from the overlay's own buttons). Drain the
-    // other one-shot latches so a key pressed mid-battle doesn't fire the instant we return to overworld.
-    if (screen.current() === 'battle') {
-      const flee = input.takeClear();
-      input.takeToggleBox();
+    // Full-screen overlays (battle, box, trade) are server-/store-driven and need neither the predictor
+    // nor the own-character row. Handle them BEFORE the movement gates so they can always be EXITED —
+    // even when a battle opens before the predictor exists, or the own row briefly drops on a reconnect
+    // while a menu is open — otherwise the overlay would trap the player with a dead Escape. Drain the
+    // other one-shot latches so a key pressed in an overlay doesn't fire on return to the overworld.
+    const overlay = screen.current();
+    if (overlay !== 'overworld') {
+      const stop = input.takeClear();
+      const toggleBox = input.takeToggleBox();
+      const toggleTrade = input.takeToggleTrade();
       input.takeStartBattle();
       input.takeHeal();
       input.takeJump();
-      if (flee) net.closeBattle();
+      if (overlay === 'battle') {
+        if (stop) net.closeBattle(); // flee; skill/recruit/swap come from the overlay's own buttons
+      } else if (stop || (overlay === 'box' && toggleBox) || (overlay === 'trade' && toggleTrade)) {
+        screen.set('overworld');
+      }
       hud.update();
       return;
     }
@@ -184,60 +194,54 @@ async function bootstrap(): Promise<void> {
       const startBattlePressed = input.takeStartBattle();
       const healPressed = input.takeHeal();
       const jumpPressed = input.takeJump();
-      // Battle is handled before the movement gates above (it needs no predictor), so by here the
-      // screen is overworld or box.
-      const current = screen.current();
+      const toggleTrade = input.takeToggleTrade();
+      // Overlays are handled before the movement gates above, so by here the screen is the overworld.
+      if (toggleBox) screen.set('box');
+      if (toggleTrade) screen.set('trade');
+      if (healPressed) net.healParty();
+      if (startBattlePressed && net.battle() === undefined) net.startBattle();
+      const room = stored.row.moveQueue.length + predictor.pendingCount < cap;
 
-      if (current === 'box') {
-        if (toggleBox || stopPressed) screen.set('overworld');
-      } else {
-        // Overworld.
-        if (toggleBox) screen.set('box');
-        if (healPressed) net.healParty();
-        if (startBattlePressed && net.battle() === undefined) net.startBattle();
-        const room = stored.row.moveQueue.length + predictor.pendingCount < cap;
+      // Stop action (Escape, placeholder for menu/interact): clear the un-started buffer now.
+      if (stopPressed) {
+        const seq = predictor.clearQueue();
+        net.clearQueue(seq);
+        committedDir = null;
+      }
 
-        // Stop action (Escape, placeholder for menu/interact): clear the un-started buffer now.
-        if (stopPressed) {
-          const seq = predictor.clearQueue();
-          net.clearQueue(seq);
-          committedDir = null;
+      // Jump (one-shot): append behind the buffer if there's room.
+      if (jumpPressed && room) {
+        const seq = predictor.enqueue('Jump');
+        net.enqueueMove(wasmToSdkMoveInput('Jump'), seq);
+      }
+
+      const dir = input.heldDir();
+      if (dir === null) {
+        // Released. Nothing is ever committed beyond the step currently animating (we only queue
+        // the next step AT completion, below), so the character simply finishes the in-progress
+        // tile and stops — no buffered move to cancel, so no clear and no snap-back race.
+        committedDir = null;
+      } else if (dir !== committedDir) {
+        // Direction changed (or first step from idle): turn responsively by REPLACING the whole
+        // un-drained buffer with the new direction (no overshoot beyond the step already animating).
+        // Not flow-gated — set_move replaces rather than grows. Skip if it's already queued (no
+        // redundant same-direction requests).
+        committedDir = dir;
+        if (predictor.lastQueuedDir() !== dir) {
+          const seq = predictor.setMove({ Step: dir });
+          net.setMove(wasmToSdkMoveInput({ Step: dir }), seq);
         }
-
-        // Jump (one-shot): append behind the buffer if there's room.
-        if (jumpPressed && room) {
-          const seq = predictor.enqueue('Jump');
-          net.enqueueMove(wasmToSdkMoveInput('Jump'), seq);
-        }
-
-        const dir = input.heldDir();
-        if (dir === null) {
-          // Released. Nothing is ever committed beyond the step currently animating (we only queue
-          // the next step AT completion, below), so the character simply finishes the in-progress
-          // tile and stops — no buffered move to cancel, so no clear and no snap-back race.
-          committedDir = null;
-        } else if (dir !== committedDir) {
-          // Direction changed (or first step from idle): turn responsively by REPLACING the whole
-          // un-drained buffer with the new direction (no overshoot beyond the step already animating).
-          // Not flow-gated — set_move replaces rather than grows. Skip if it's already queued (no
-          // redundant same-direction requests).
-          committedDir = dir;
-          if (predictor.lastQueuedDir() !== dir) {
-            const seq = predictor.setMove({ Step: dir });
-            net.setMove(wasmToSdkMoveInput({ Step: dir }), seq);
-          }
-        } else if (
-          predictor.queueDepth === 0 &&
-          now - predictor.predicted.move_started_at >= step &&
-          room
-        ) {
-          // Sustained hold: queue the NEXT step exactly when the current one completes — never ahead
-          // of it. The drain just below applies it the same frame (back-dated, so the slide chains
-          // with no gap), and because nothing is committed past the current tile, releasing stops
-          // cleanly with no overshoot and no move for the server to race us on.
-          const seq = predictor.enqueue({ Step: dir });
-          net.enqueueMove(wasmToSdkMoveInput({ Step: dir }), seq);
-        }
+      } else if (
+        predictor.queueDepth === 0 &&
+        now - predictor.predicted.move_started_at >= step &&
+        room
+      ) {
+        // Sustained hold: queue the NEXT step exactly when the current one completes — never ahead
+        // of it. The drain just below applies it the same frame (back-dated, so the slide chains
+        // with no gap), and because nothing is committed past the current tile, releasing stops
+        // cleanly with no overshoot and no move for the server to race us on.
+        const seq = predictor.enqueue({ Step: dir });
+        net.enqueueMove(wasmToSdkMoveInput({ Step: dir }), seq);
       }
 
       // Drain AFTER input so a step queued at completion (or a tap from idle) starts this same
