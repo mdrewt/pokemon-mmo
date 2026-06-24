@@ -92,7 +92,7 @@ game would feel broken.
 |---|---|---|
 | Shared rules | **Rust**<sup>[3](https://www.rust-lang.org/)</sup> | Compiles to both native (server) and WASM (browser) from one codebase. Strong types let us "make illegal states unrepresentable." |
 | Browser prediction | **WebAssembly**<sup>[4](https://developer.mozilla.org/en-US/docs/WebAssembly)</sup> (via `wasm-pack`) | Runs the *same* Rust source rule in the browser. The compiled artifacts differ (WASM vs native), but for our integer-only logic they produce **identical results** — which is the whole point. |
-| Backend | **SpacetimeDB 2.6**<sup>[5](https://spacetimedb.com/docs/intro/key-architecture/)</sup> | A database where your game logic (Rust "reducers") runs *inside* the database, next to the data, in transactions. Clients subscribe to tables and get live updates.<sup>[6](https://spacetimedb.com/docs/subscriptions/semantics/)</sup> It also provides a row-level-security mechanism (still experimental in this version — more on that later). |
+| Backend | **SpacetimeDB 2.6**<sup>[5](https://spacetimedb.com/docs/intro/key-architecture/)</sup> | A database where your game logic (Rust "reducers") runs *inside* the database, next to the data, in transactions. Clients subscribe to tables and get live updates.<sup>[6](https://spacetimedb.com/docs/clients/subscriptions)</sup> It also provides a row-level-security mechanism (still experimental in this version — more on that later). |
 | Frontend | **PixiJS v8**<sup>[7](https://pixijs.com/)</sup> + **TypeScript** | A fast 2D renderer (WebGL, with a WebGPU path in v8); TypeScript keeps the glue code honest. |
 
 If some of those words are unfamiliar (reducer? subscription? WASM?), good — we define each one the
@@ -145,5 +145,5 @@ later.
 3. ["Rust Programming Language"](https://www.rust-lang.org/) — official site. *(The shared-rules language; compiles to native and WASM.)*
 4. MDN Web Docs — ["WebAssembly"](https://developer.mozilla.org/en-US/docs/WebAssembly). *(The browser-prediction runtime.)*
 5. SpacetimeDB Docs — ["Key Architecture"](https://spacetimedb.com/docs/intro/key-architecture/). *(Logic-in-the-database model.)*
-6. SpacetimeDB Docs — ["Subscription Semantics"](https://spacetimedb.com/docs/subscriptions/semantics/). *(Clients subscribe and get pushed live updates.)*
+6. SpacetimeDB Docs — ["Subscriptions"](https://spacetimedb.com/docs/clients/subscriptions). *(Clients subscribe and get pushed live updates.)*
 7. ["PixiJS"](https://pixijs.com/) — official site (v8). *(The 2D WebGL/WebGPU renderer.)*

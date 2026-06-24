@@ -59,7 +59,7 @@ This is the "marshaling boundary" pattern:
    It imports the rule and calls it.
 3. **Serialize** the result back to a JS object: `serde_wasm_bindgen::to_value(&next)?`.
 
-The function is `pub fn` annotated with `#[wasm_bindgen]`<sup>[2](https://rustwasm.github.io/wasm-bindgen/)</sup>,
+The function is `pub fn` annotated with `#[wasm_bindgen]`<sup>[2](https://rustwasm.github.io/docs/wasm-bindgen/)</sup>,
 which is what makes it callable from JavaScript. The `serde_wasm_bindgen`<sup>[3](https://github.com/RReverser/serde-wasm-bindgen)</sup>
 calls convert serde types to and from JS values. The signature speaks in `JsValue` (an opaque handle
 to a JS value) at the edges and in real Rust types in the middle. **Marshal at the edge, delegate in the center, marshal back.** If this
@@ -165,6 +165,6 @@ that ties it all together: the PixiJS frontend.
 ## References
 
 1. MDN Web Docs — ["WebAssembly"](https://developer.mozilla.org/en-US/docs/WebAssembly). *(What WASM is, how it loads, and its performance characteristics.)*
-2. The `wasm-bindgen` Guide — [rustwasm.github.io/wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/). *(The `#[wasm_bindgen]` boundary, the `start` hook, exported functions.)*
+2. The `wasm-bindgen` Guide — [rustwasm.github.io/wasm-bindgen](https://rustwasm.github.io/docs/wasm-bindgen/). *(The `#[wasm_bindgen]` boundary, the `start` hook, exported functions.)*
 3. `serde-wasm-bindgen` — [github.com/RReverser/serde-wasm-bindgen](https://github.com/RReverser/serde-wasm-bindgen). *(`from_value`/`to_value` marshaling of serde types across the JS boundary.)*
 4. The `wasm-pack` Book — ["build" command](https://rustwasm.github.io/docs/wasm-pack/commands/build.html). *(The `--target bundler` output and why it's the default for bundlers.)*
