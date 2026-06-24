@@ -9,6 +9,7 @@
 import type { NetHandle } from '../net/connection';
 import type { Predictor } from '../prediction/predictor';
 import { characterToWasm } from '../convert';
+import { trainingTotal } from '../monster';
 import type { WasmAction, WasmFacing } from '../wasm';
 
 export interface GameCharSnapshot {
@@ -135,8 +136,7 @@ export function installIntrospection(
         currentHp: m.currentHp,
         maxHp: m.derived.hp,
         bond: m.bond,
-        trainingTotal:
-          m.training.hp + m.training.attack + m.training.defense + m.training.special + m.training.speed,
+        trainingTotal: trainingTotal(m.training),
       })),
       visibleMonsterCount: net.store.monsters.size,
       baitCount: net.baitCount(),

@@ -492,6 +492,13 @@ fn caller_monster(ctx: &ReducerContext, monster_id: u64) -> Result<Monster, Stri
     Ok(monster)
 }
 
+/// Spend one of an item stack (the caller already validated ownership + `quantity > 0`). The single
+/// place item consumption happens, so a future change (e.g. deleting empty stacks) lives here.
+fn consume_one(ctx: &ReducerContext, mut stack: PlayerItem) {
+    stack.quantity -= 1;
+    ctx.db.player_item().id().update(stack);
+}
+
 // --- Battle helpers (marshaling + delegate to game-core) ------------------------------------
 
 /// Map a stored `skill` row to the `game-core` template.
@@ -1109,7 +1116,7 @@ pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Res
         .ok_or("no such item")?;
     let stat = item.train_stat.ok_or("that item is not training food")?;
 
-    let mut stack = ctx
+    let stack = ctx
         .db
         .player_item()
         .owner_identity()
@@ -1121,8 +1128,7 @@ pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Res
     monster.training = apply_training(monster.training, stat, item.train_amount)?;
     refresh_monster_stats(ctx, &mut monster);
 
-    stack.quantity -= 1;
-    ctx.db.player_item().id().update(stack);
+    consume_one(ctx, stack);
     ctx.db.monster().monster_id().update(monster);
     Ok(())
 }
@@ -1289,7 +1295,7 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
     // Optionally spend one bait for a recruit bonus (consumed regardless of the outcome).
     let mut bait_bonus = 0u16;
     if use_bait {
-        let mut stack = ctx
+        let stack = ctx
             .db
             .player_item()
             .owner_identity()
@@ -1303,8 +1309,7 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
             .find(BAIT_ITEM_ID)
             .ok_or("bait item missing")?;
         bait_bonus = item.recruit_bonus;
-        stack.quantity -= 1;
-        ctx.db.player_item().id().update(stack);
+        consume_one(ctx, stack);
     }
 
     let chance = recruit_chance(

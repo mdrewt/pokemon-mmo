@@ -5,6 +5,7 @@
 
 import type { NetHandle } from '../net/connection';
 import type { Monster } from '../module_bindings/types';
+import { BOND_MAX, TRAINING_TOTAL_MAX, trainingTotal } from '../monster';
 import { affinityColor } from './affinity';
 
 const PARTY_SIZE = 3;
@@ -201,13 +202,12 @@ export class BoxScreen {
 
     const d = m.derived;
     const t = m.training;
-    const trained = t.hp + t.attack + t.defense + t.special + t.speed;
     panel.append(
       this.#infoGrid([
         ['Temperament', m.temperament.tag],
-        ['Bond', `${m.bond} / 255`],
+        ['Bond', `${m.bond} / ${BOND_MAX}`],
         ['HP', `${m.currentHp} / ${d.hp}`],
-        ['Training', `${trained} / 510`],
+        ['Training', `${trainingTotal(t)} / ${TRAINING_TOTAL_MAX}`],
       ]),
       this.#xpProgress(m),
     );
