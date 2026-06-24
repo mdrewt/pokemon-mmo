@@ -79,12 +79,15 @@ const tablesSchema = __schema({
   battle: __table({
     name: 'battle',
     indexes: [
+      { accessor: 'battle_id', name: 'battle_battle_id_idx_btree', algorithm: 'btree', columns: [
+        'battleId',
+      ] },
       { accessor: 'player_identity', name: 'battle_player_identity_idx_btree', algorithm: 'btree', columns: [
         'playerIdentity',
       ] },
     ],
     constraints: [
-      { name: 'battle_player_identity_key', constraint: 'unique', columns: ['playerIdentity'] },
+      { name: 'battle_battle_id_key', constraint: 'unique', columns: ['battleId'] },
     ],
   }, BattleRow),
   character: __table({

@@ -225,6 +225,13 @@ const PLAYER_ITEM_VISIBILITY: Filter =
 #[spacetimedb::table(name = battle, public)]
 pub struct Battle {
     #[primary_key]
+    #[auto_inc]
+    pub battle_id: u64,
+    /// The (human) player this battle belongs to. INDEXED, not the PK, so a second participant can be
+    /// added additively when PvP lands (M11.2 stage 2). RLS scopes visibility to this identity. "At most
+    /// one battle per human" is enforced by `begin_encounter`'s check, not a DB uniqueness constraint
+    /// (a PvP battle will carry two participant identities, so player_identity must not be unique).
+    #[index(btree)]
     pub player_identity: Identity,
     pub state: BattleState,
     pub enemy_level: u8,
@@ -601,12 +608,31 @@ fn caller_monster(ctx: &ReducerContext, monster_id: u64) -> Result<Monster, Stri
     Ok(monster)
 }
 
+/// A player's active battle, if any. `battle` is keyed by `battle_id` (PvP-ready), so this looks up by
+/// the `player_identity` index; at most one human battle exists per player (enforced by
+/// `begin_encounter`).
+fn player_battle(ctx: &ReducerContext, identity: Identity) -> Option<Battle> {
+    ctx.db.battle().player_identity().filter(identity).next()
+}
+
+/// The caller's active battle, if any.
+fn caller_battle(ctx: &ReducerContext) -> Option<Battle> {
+    player_battle(ctx, ctx.sender)
+}
+
+/// Delete the caller's active battle (if any). Keyed by `battle_id` now, so find then delete by PK.
+fn delete_caller_battle(ctx: &ReducerContext) {
+    if let Some(b) = caller_battle(ctx) {
+        ctx.db.battle().battle_id().delete(b.battle_id);
+    }
+}
+
 /// Reject a monster-mutating action while the caller has an active battle. A `battle` holds a
 /// snapshot of its party, so evolving / fusing / training / re-slotting a combatant mid-battle would
 /// desync it — and fusing a combatant (which deletes the row) would dodge the post-turn HP write-back.
 /// The box UI is overworld-only, so in practice this only blocks a direct hostile reducer call.
 fn reject_if_in_battle(ctx: &ReducerContext) -> Result<(), String> {
-    if ctx.db.battle().player_identity().find(ctx.sender).is_some() {
+    if caller_battle(ctx).is_some() {
         return Err("you can't do that during a battle".to_string());
     }
     Ok(())
@@ -908,7 +934,7 @@ fn begin_encounter(ctx: &ReducerContext, identity: Identity) -> Result<(), Strin
     if ctx.db.player().identity().find(identity).is_none() {
         return Err("not in game".to_string());
     }
-    if ctx.db.battle().player_identity().find(identity).is_some() {
+    if player_battle(ctx, identity).is_some() {
         return Err("already in battle".to_string());
     }
 
@@ -962,6 +988,7 @@ fn begin_encounter(ctx: &ReducerContext, identity: Identity) -> Result<(), Strin
         .unwrap_or(0) as u8;
 
     ctx.db.battle().insert(Battle {
+        battle_id: 0, // auto_inc
         player_identity: identity,
         state: BattleState::new(player_side, BattleSide::new(vec![enemy])),
         enemy_level: level.0,
@@ -1084,7 +1111,7 @@ pub fn client_disconnected(ctx: &ReducerContext) {
         ctx.db.player().identity().delete(ctx.sender);
     }
     // End any active battle (monsters persist; the transient battle does not).
-    ctx.db.battle().player_identity().delete(ctx.sender);
+    delete_caller_battle(ctx);
     // Release any pending trades this player was party to: the escrow lock lives in the offer row, so
     // deleting the offers unlocks both monsters (and an offer made TO a now-gone player won't linger).
     let stale: Vec<u64> = ctx
@@ -1264,13 +1291,7 @@ fn maybe_trigger_encounter(ctx: &ReducerContext, entity_id: u64) {
     let Some(player) = ctx.db.player().entity_id().filter(entity_id).next() else {
         return; // not a player-owned character (e.g. an NPC)
     };
-    if ctx
-        .db
-        .battle()
-        .player_identity()
-        .find(player.identity)
-        .is_some()
-    {
+    if player_battle(ctx, player.identity).is_some() {
         return; // already in a battle
     }
     // Roll FIRST (cheap) — only a hit reads the encounter table, which `begin_encounter` does once.
@@ -1564,18 +1585,8 @@ pub fn confirm_trade(ctx: &ReducerContext, offer_id: u64) -> Result<(), String> 
         .ok_or("the other player hasn't responded yet")?;
 
     // Neither party may be mid-battle: a traded monster could be a combatant in a snapshotted party.
-    if ctx
-        .db
-        .battle()
-        .player_identity()
-        .find(offer.from_identity)
-        .is_some()
-        || ctx
-            .db
-            .battle()
-            .player_identity()
-            .find(offer.to_identity)
-            .is_some()
+    if player_battle(ctx, offer.from_identity).is_some()
+        || player_battle(ctx, offer.to_identity).is_some()
     {
         return Err("a participant is in a battle".to_string());
     }
@@ -1641,12 +1652,7 @@ pub fn start_battle(ctx: &ReducerContext) -> Result<(), String> {
 /// sends intent (a skill id); the server computes every outcome.
 #[spacetimedb::reducer]
 pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> {
-    let mut battle = ctx
-        .db
-        .battle()
-        .player_identity()
-        .find(ctx.sender)
-        .ok_or("not in battle")?;
+    let mut battle = caller_battle(ctx).ok_or("not in battle")?;
     if battle.state.is_over() {
         return Err("battle is over".to_string());
     }
@@ -1698,7 +1704,7 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
         battle.last_xp_gain = gain;
         battle.leveled_up = award_battle_xp(ctx, ctx.sender, gain);
     }
-    ctx.db.battle().player_identity().update(battle);
+    ctx.db.battle().battle_id().update(battle);
     Ok(())
 }
 
@@ -1707,12 +1713,7 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
 /// and not fainted; rejects (never clamps) an illegal choice. The client sends only the index.
 #[spacetimedb::reducer]
 pub fn swap_active(ctx: &ReducerContext, team_index: u8) -> Result<(), String> {
-    let mut battle = ctx
-        .db
-        .battle()
-        .player_identity()
-        .find(ctx.sender)
-        .ok_or("not in battle")?;
+    let mut battle = caller_battle(ctx).ok_or("not in battle")?;
     if battle.state.is_over() {
         return Err("battle is over".to_string());
     }
@@ -1744,7 +1745,7 @@ pub fn swap_active(ctx: &ReducerContext, team_index: u8) -> Result<(), String> {
     battle.leveled_up = false;
     // The swap turn can damage the player's monster (no win is possible — the player didn't attack).
     persist_party_hp(ctx, &battle);
-    ctx.db.battle().player_identity().update(battle);
+    ctx.db.battle().battle_id().update(battle);
     Ok(())
 }
 
@@ -1754,12 +1755,7 @@ pub fn swap_active(ctx: &ReducerContext, team_index: u8) -> Result<(), String> {
 /// The server computes the odds and the roll from authoritative state — the client only sends intent.
 #[spacetimedb::reducer]
 pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), String> {
-    let mut battle = ctx
-        .db
-        .battle()
-        .player_identity()
-        .find(ctx.sender)
-        .ok_or("not in battle")?;
+    let mut battle = caller_battle(ctx).ok_or("not in battle")?;
     if battle.state.is_over() {
         return Err("battle is over".to_string());
     }
@@ -1843,7 +1839,7 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
         battle.last_events = events;
         persist_party_hp(ctx, &battle);
     }
-    ctx.db.battle().player_identity().update(battle);
+    ctx.db.battle().battle_id().update(battle);
     Ok(())
 }
 
@@ -1873,6 +1869,6 @@ pub fn heal_party(ctx: &ReducerContext) -> Result<(), String> {
 /// Leave the current battle (flee if ongoing, or dismiss the result). Returns to the overworld.
 #[spacetimedb::reducer]
 pub fn close_battle(ctx: &ReducerContext) -> Result<(), String> {
-    ctx.db.battle().player_identity().delete(ctx.sender);
+    delete_caller_battle(ctx);
     Ok(())
 }
