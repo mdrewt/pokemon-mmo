@@ -351,8 +351,9 @@ type chart + readable core, visible XP, persistent HP (**done**) · M8 finding &
 encounters, recruit-by-weaken, bait, plus a voluntary in-battle switch (**done**) · M9 raising &
 growth — focus-training (food) + care (bond) (**done**) · M10 evolution & fusion — conditional
 branch evolution + fuse-with-inheritance, both keeping/combining individuality (**done**) · **M11
-multiplayer** — split into **M11.1 trading (monsters)** (**done**) · M11.2 PvP battles (next, incl.
-the battle `battle_id`/participant refactor) · M11.3 PvP leagues · M11.4 co-op.
+multiplayer** — split into **M11.1 trading (monsters)** (**done**) · **M11.2 PvP battles** (**done**:
+stage 1 `battle_id` re-key + stage 2 challenge→shared-battle, resolve-when-both-submit, forfeit) ·
+M11.3 PvP leagues (next) · M11.4 co-op.
 
 One PR per milestone → CI + the review gates (`reducer-security-auditor`, `desync-guard`,
 `/simplify`, `/code-review`) → merge, with the user verifying user-facing feel first. (See the
@@ -364,14 +365,17 @@ The pre-M11 review surfaced load-bearing single-player assumptions that M11 (tra
 will fight. These are **decisions to make first**, not code to write early (YAGNI) — but the first
 one is a *breaking schema change that is free now and a migration after launch*, so sequence matters:
 
-- **Battle is keyed per-player → PvP can't share a battle row.** **PK change DONE (M11.2 stage 1):**
-  `battle` is now keyed by a synthetic `battle_id` (auto_inc) with `player_identity` demoted to a
-  non-unique `#[index(btree)]` column (RLS unchanged; "one battle per human" enforced by
-  `begin_encounter`, not a uniqueness constraint) — a behavior-preserving refactor (PvE e2e 18/18) that
-  makes a second participant additive. **Still TODO (M11.2 stage 2):** the participant model proper (RLS
-  = "visible if you're a participant") and a symmetric `BattleState` that resolves only when *both*
-  sides have submitted (the wild path becomes the degenerate "server fills the NPC action" case).
-  Changing `BattleState` is a `game-core` signature change → run impact analysis.
+- **Battle is keyed per-player → PvP can't share a battle row.** **DONE (M11.2).** Stage 1 re-keyed
+  `battle` by a synthetic `battle_id`. Stage 2 added PvP: an `opponent_identity` column (EQUALS
+  `player_identity` as a self-sentinel for PvE; differs for PvP — `is_pvp` is that inequality) makes the
+  participant model additive, and RLS scopes the shared row to both (`player_identity = :sender OR
+  opponent_identity = :sender`). A `challenge → accept` handshake builds one shared battle from both
+  parties' sides. Crucially **`BattleState`/`resolve_turn` did NOT change** — `resolve_turn` was already
+  symmetric, so PvP is pure orchestration: each side's pick is recorded in a **private per-chooser
+  `battle_action` table** (so neither sees the other's pick before resolve), and the turn resolves via
+  the same `resolve_turn` once both have chosen. Forfeit on flee/disconnect. Deferred: turn-timeout
+  reaper, in-battle switch/items in PvP, XP/stakes (M11.3 leagues), and the challenger-acts-first-on-tie
+  is a documented first-cut rule (not re-randomized, to avoid changing PvE's tested tie-break).
 - **Ownership-transfer / escrow primitive — BUILT in M11.1.** A `trade_offer` table (RLS-scoped to the
   two parties) carries a display-only `MonsterCard` snapshot so a counterparty can see the offered
   monster *without* relaxing the per-owner `monster` RLS. Directed, dual-consent flow

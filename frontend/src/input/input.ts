@@ -37,6 +37,8 @@ export class InputController {
   #healLatched = false;
   /** Set on a trade-toggle press (T); consumed once by `takeToggleTrade()`. M11.1 trading. */
   #toggleTradeLatched = false;
+  /** Set on a challenge-toggle press (C); consumed once by `takeToggleChallenge()`. M11.2 PvP. */
+  #toggleChallengeLatched = false;
   #enabled = false;
 
   #onKeyDown = (e: KeyboardEvent): void => this.#handleKeyDown(e);
@@ -107,6 +109,13 @@ export class InputController {
     return t;
   }
 
+  /** Returns true once if the challenge-toggle (C) was pressed since the last call. */
+  takeToggleChallenge(): boolean {
+    const c = this.#toggleChallengeLatched;
+    this.#toggleChallengeLatched = false;
+    return c;
+  }
+
   #handleKeyDown(e: KeyboardEvent): void {
     if (e.repeat) return; // hold is handled by polling, not OS key-repeat
     // Ignore game keys while a form control has focus (the box rename input, the trade dropdowns) so
@@ -146,6 +155,10 @@ export class InputController {
       this.#toggleTradeLatched = true;
       return;
     }
+    if (e.code === 'KeyC') {
+      this.#toggleChallengeLatched = true;
+      return;
+    }
     const dir = ARROW_TO_DIR[e.code];
     if (!dir) return;
     e.preventDefault();
@@ -168,5 +181,6 @@ export class InputController {
     this.#startBattleLatched = false;
     this.#healLatched = false;
     this.#toggleTradeLatched = false;
+    this.#toggleChallengeLatched = false;
   }
 }

@@ -6,12 +6,15 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AcceptChallengeReducer from "../accept_challenge_reducer";
 import AttemptRecruitReducer from "../attempt_recruit_reducer";
 import CancelTradeReducer from "../cancel_trade_reducer";
 import CareForMonsterReducer from "../care_for_monster_reducer";
+import ChallengePlayerReducer from "../challenge_player_reducer";
 import ClearQueueReducer from "../clear_queue_reducer";
 import CloseBattleReducer from "../close_battle_reducer";
 import ConfirmTradeReducer from "../confirm_trade_reducer";
+import DeclineChallengeReducer from "../decline_challenge_reducer";
 import EnqueueMoveReducer from "../enqueue_move_reducer";
 import EvolveMonsterReducer from "../evolve_monster_reducer";
 import FuseMonstersReducer from "../fuse_monsters_reducer";
@@ -27,12 +30,15 @@ import SubmitActionReducer from "../submit_action_reducer";
 import SwapActiveReducer from "../swap_active_reducer";
 import TrainMonsterReducer from "../train_monster_reducer";
 
+export type AcceptChallengeParams = __Infer<typeof AcceptChallengeReducer>;
 export type AttemptRecruitParams = __Infer<typeof AttemptRecruitReducer>;
 export type CancelTradeParams = __Infer<typeof CancelTradeReducer>;
 export type CareForMonsterParams = __Infer<typeof CareForMonsterReducer>;
+export type ChallengePlayerParams = __Infer<typeof ChallengePlayerReducer>;
 export type ClearQueueParams = __Infer<typeof ClearQueueReducer>;
 export type CloseBattleParams = __Infer<typeof CloseBattleReducer>;
 export type ConfirmTradeParams = __Infer<typeof ConfirmTradeReducer>;
+export type DeclineChallengeParams = __Infer<typeof DeclineChallengeReducer>;
 export type EnqueueMoveParams = __Infer<typeof EnqueueMoveReducer>;
 export type EvolveMonsterParams = __Infer<typeof EvolveMonsterReducer>;
 export type FuseMonstersParams = __Infer<typeof FuseMonstersReducer>;

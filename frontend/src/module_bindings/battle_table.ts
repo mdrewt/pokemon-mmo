@@ -20,11 +20,13 @@ import {
 export default __t.row({
   battleId: __t.u64().primaryKey().name("battle_id"),
   playerIdentity: __t.identity().name("player_identity"),
+  opponentIdentity: __t.identity().name("opponent_identity"),
   get state() {
     return BattleState;
   },
   enemyLevel: __t.u8().name("enemy_level"),
   partyMonsterIds: __t.array(__t.u64()).name("party_monster_ids"),
+  opponentMonsterIds: __t.array(__t.u64()).name("opponent_monster_ids"),
   get wildPotential() {
     return Potential.name("wild_potential");
   },

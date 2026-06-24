@@ -660,6 +660,97 @@ test.describe.serial('two-window integration', () => {
     await pageB.keyboard.press('Escape');
   });
 
+  test('two players fight a PvP battle to a winner (M11.2)', async () => {
+    test.setTimeout(90_000);
+    // Make sure each window has a party member (the trade test can leave a player's only monster in the
+    // box, party_slot = null), then heal — a fightable party is required to challenge.
+    const ensureParty = async (page: Page): Promise<void> => {
+      if ((await snapshot(page)).monsters.some((m) => m.partySlot !== null)) return;
+      const boxMon = (await snapshot(page)).monsters[0];
+      expect(boxMon, 'player should own at least one monster').toBeTruthy();
+      await page.locator('#app').click();
+      await page.keyboard.press('KeyB');
+      await expect(page.locator('#box-screen')).toBeVisible();
+      await page.locator(`#box-screen [data-monster-id="${boxMon!.monsterId}"]`).click();
+      await page.locator('#box-screen [data-party="0"]').click();
+      await expect
+        .poll(async () => (await snapshot(page)).monsters.some((m) => m.partySlot === 0))
+        .toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#box-screen')).toBeHidden();
+    };
+    for (const page of [pageA, pageB]) {
+      await page.locator('#app').click();
+      await page.keyboard.press('Escape');
+      await fleeIfBattling(page);
+      await ensureParty(page);
+      await page.keyboard.press('KeyH'); // heal
+    }
+    for (const page of [pageA, pageB]) {
+      await expect
+        .poll(async () =>
+          (await snapshot(page)).monsters.every((m) => m.partySlot === null || m.currentHp > 0),
+        )
+        .toBe(true);
+    }
+
+    const idHexB = (await snapshot(pageB)).identityHex!;
+
+    // A challenges B.
+    await pageA.keyboard.press('KeyC');
+    await expect(pageA.locator('#challenge-screen')).toBeVisible();
+    await pageA.locator(`#challenge-screen [data-challenge-player="${idHexB}"]`).click();
+
+    // B receives the challenge and accepts it.
+    await expect.poll(async () => (await snapshot(pageB)).challenges.length).toBe(1);
+    await pageB.keyboard.press('KeyC');
+    await expect(pageB.locator('#challenge-screen')).toBeVisible();
+    await pageB.locator('#challenge-screen [data-challenge-accept]').click();
+
+    // Both windows are now in the SAME PvP battle.
+    for (const page of [pageA, pageB]) {
+      await expect.poll(async () => (await snapshot(page)).battle?.isPvp ?? false).toBe(true);
+      await expect(page.locator('#battle-screen')).toBeVisible();
+    }
+
+    // Each turn resolves only when BOTH players have submitted (simultaneous choice). Submit on whichever
+    // side hasn't chosen yet, until the battle reaches a terminal outcome.
+    const submitIfMyTurn = async (page: Page): Promise<void> => {
+      const g = await snapshot(page);
+      if (!g.battle || g.battle.outcome !== 'Ongoing' || g.battle.iSubmitted) return;
+      const skill = page.locator('#battle-screen [data-skill]').first();
+      if ((await skill.count()) > 0) await skill.click().catch(() => undefined);
+    };
+    // Bounded generously: a high-HP evolved monster (prior tests can leave one) takes many turns at the
+    // min-1 damage floor. Each iteration submits at most one pick per side, then waits for resolution.
+    let guard = 0;
+    while (guard++ < 250) {
+      const g = await snapshot(pageA);
+      if (!g.battle || g.battle.outcome !== 'Ongoing') break;
+      await submitIfMyTurn(pageA);
+      await submitIfMyTurn(pageB);
+      await pageA.waitForTimeout(120);
+    }
+
+    // The shared battle resolved to a decisive winner (PlayerWon = A/challenger won, PlayerLost = B won),
+    // and both windows agree on the same outcome.
+    const finalA = (await snapshot(pageA)).battle;
+    const finalB = (await snapshot(pageB)).battle;
+    expect(['PlayerWon', 'PlayerLost']).toContain(finalA?.outcome);
+    expect(finalB?.outcome).toBe(finalA?.outcome);
+    // The winner's screen reads Victory and the loser's Defeat (perspective-correct headlines).
+    const winnerPage = finalA?.outcome === 'PlayerWon' ? pageA : pageB;
+    const loserPage = finalA?.outcome === 'PlayerWon' ? pageB : pageA;
+    await expect(winnerPage.locator('#battle-screen')).toContainText('Victory');
+    await expect(loserPage.locator('#battle-screen')).toContainText('Defeat');
+
+    // Dismissing removes the shared row → both return to the overworld.
+    await winnerPage.locator('#battle-screen').getByText('Continue').click();
+    for (const page of [pageA, pageB]) {
+      await expect.poll(async () => (await snapshot(page)).battle).toBeNull();
+    }
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

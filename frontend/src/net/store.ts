@@ -7,6 +7,8 @@
 
 import type {
   Battle,
+  BattleAction,
+  BattleChallenge,
   Character,
   Fusion,
   Item,
@@ -57,6 +59,11 @@ export class AuthoritativeStore {
   battle: Battle | undefined;
   /** Pending trade offers this client is party to (RLS-scoped to from/to), keyed by offer id. */
   readonly tradeOffers = new Map<bigint, TradeOffer>();
+  /** Pending PvP challenges this client is party to (RLS-scoped to from/to), keyed by challenge id. */
+  readonly battleChallenges = new Map<bigint, BattleChallenge>();
+  /** This client's OWN queued PvP actions (RLS hides the opponent's), keyed by row id — drives the
+   *  "waiting for opponent" battle state without leaking the opponent's pending pick. */
+  readonly battleActions = new Map<bigint, BattleAction>();
 
   #charListeners = new Set<CharacterListener>();
   /** Fired on any species/monster change so the box UI can re-render (it's not real-time). */
@@ -161,6 +168,45 @@ export class AuthoritativeStore {
 
   removeTradeOffer(id: bigint): void {
     if (this.tradeOffers.delete(id)) this.#emitTradeChange();
+  }
+
+  // ── PvP challenges + queued actions ─────────────────────────────────────────
+
+  #challengeListeners = new Set<() => void>();
+
+  /** Subscribe to PvP challenge changes; returns an unsubscribe fn. */
+  onChallengeChange(fn: () => void): () => void {
+    this.#challengeListeners.add(fn);
+    return () => this.#challengeListeners.delete(fn);
+  }
+
+  #emitChallengeChange(): void {
+    for (const fn of this.#challengeListeners) fn();
+  }
+
+  upsertBattleChallenge(row: BattleChallenge): void {
+    this.battleChallenges.set(row.id, row);
+    this.#emitChallengeChange();
+  }
+
+  removeBattleChallenge(id: bigint): void {
+    if (this.battleChallenges.delete(id)) this.#emitChallengeChange();
+  }
+
+  // A queued action change flips the "have I chosen this turn?" state, so re-render the battle view.
+  upsertBattleAction(row: BattleAction): void {
+    this.battleActions.set(row.id, row);
+    this.#emitBattleChange();
+  }
+
+  removeBattleAction(id: bigint): void {
+    if (this.battleActions.delete(id)) this.#emitBattleChange();
+  }
+
+  /** Whether this client has already queued an action for the given battle (RLS-scoped to own rows). */
+  hasQueuedAction(battleId: bigint): boolean {
+    for (const a of this.battleActions.values()) if (a.battleId === battleId) return true;
+    return false;
   }
 
   #emit(ev: CharacterEvent): void {
