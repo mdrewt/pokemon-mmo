@@ -13,7 +13,3 @@ spacetimedb = { workspace = true, optional = true }
 
 [features]
 spacetimedb = ["dep:spacetimedb"]
-
-[dev-dependencies]
-rand = { workspace = true }
-rand_chacha = { workspace = true }

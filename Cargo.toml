@@ -8,8 +8,6 @@ serde = { version = "1", features = ["derive"] }
 # RON content files (species/skills/etc.) are embedded via include_str! and parsed in game-core.
 # Pure parser, no I/O — safe under the determinism guard.
 ron = "0.8"
-rand = "0.8"
-rand_chacha = "0.3"
 # Matches the installed `spacetime` CLI 2.6.0. game-core depends on this ONLY behind its
 # optional `spacetimedb` feature (for SpacetimeType derives); server-module uses it directly.
 spacetimedb = "1.12"

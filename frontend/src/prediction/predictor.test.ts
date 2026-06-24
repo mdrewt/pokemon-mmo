@@ -89,7 +89,7 @@ describe('Predictor (server-paced move buffer)', () => {
     expect(p.predicted.pos).toEqual({ x: 2, y: 0 }); // auth (1,0) + replayed seq 2, drained
   });
 
-  it('reconcile snaps to authoritative on a misprediction', () => {
+  it('reconcile snaps to authoritative on a misprediction and reports divergence', () => {
     const p = new Predictor(mockApply, STEP, initial());
     p.enqueue({ Step: 'East' });
     p.drain(STEP);
@@ -102,9 +102,28 @@ describe('Predictor (server-paced move buffer)', () => {
       action: 'Idle',
       move_started_at: 1000,
     };
-    p.reconcile(auth, [], 1n, 1000);
+    const diverged = p.reconcile(auth, [], 1n, 1000);
     expect(p.pendingCount).toBe(0);
     expect(p.predicted.pos).toEqual({ x: 0, y: 0 }); // snapped back to truth
+    expect(diverged).toBe(true); // we were showing (1,0); the server moved us to (0,0)
+  });
+
+  it('reconcile reports NO divergence when prediction was correct', () => {
+    const p = new Predictor(mockApply, STEP, initial());
+    p.enqueue({ Step: 'East' }); // seq 1
+    p.drain(STEP);
+    expect(p.predicted.pos).toEqual({ x: 1, y: 0 });
+
+    // Server confirms exactly what we predicted: acked seq 1, authoritative (1,0), empty queue.
+    const auth: WasmCharacterState = {
+      pos: { x: 1, y: 0 },
+      facing: 'East',
+      action: 'Walking',
+      move_started_at: 1000,
+    };
+    const diverged = p.reconcile(auth, [], 1n, 1000);
+    expect(p.predicted.pos).toEqual({ x: 1, y: 0 }); // unchanged
+    expect(diverged).toBe(false); // replay reconstructed the same tile — no correction
   });
 
   it('rebuilds with the authoritative server queue ahead of pending', () => {

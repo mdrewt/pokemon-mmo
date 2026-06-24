@@ -189,12 +189,16 @@ async function bootstrap(): Promise<void> {
     if (stored) {
       const acked = net.ackedSeq();
       if (stored.receivedAt !== lastReceivedAt || acked !== lastAcked) {
-        predictor.reconcile(
+        const diverged = predictor.reconcile(
           characterToPredictedBaseline(stored.row, now, step),
           moveQueueToWasm(stored.row.moveQueue),
           acked,
           now,
         );
+        // If the server corrected our predicted tile, drop the committed direction so a still-held key
+        // re-issues a move from the corrected position (otherwise the responsive `dir !== committedDir`
+        // re-issue is skipped and movement can stall a step).
+        if (diverged) committedDir = null;
         lastReceivedAt = stored.receivedAt;
         lastAcked = acked;
       }

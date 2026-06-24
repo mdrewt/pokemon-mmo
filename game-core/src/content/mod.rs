@@ -111,6 +111,9 @@ pub fn load_items() -> Result<Vec<Item>, String> {
 pub fn load_fusions() -> Result<Vec<FusionRecipe>, String> {
     let fusions: Vec<FusionRecipe> =
         ron::from_str(FUSIONS_RON).map_err(|e| format!("fusions.ron parse error: {e}"))?;
+    if fusions.is_empty() {
+        return Err("fusions.ron contains no recipes".to_string());
+    }
     for r in &fusions {
         if r.a == r.b {
             return Err(format!("fusion recipe fuses species {} with itself", r.a));

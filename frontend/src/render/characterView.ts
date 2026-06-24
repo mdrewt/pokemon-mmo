@@ -96,15 +96,6 @@ export class CharacterView {
     this.#durMs = Math.max(1, durMs);
   }
 
-  /** Snap immediately to a tile with no slide (e.g. on a hard reconcile). */
-  snapTo(tileX: number, tileY: number): void {
-    this.#fromX = tileX;
-    this.#fromY = tileY;
-    this.#toX = tileX;
-    this.#toY = tileY;
-    this.#placeAt(tileX, tileY);
-  }
-
   /** Advance the visual interpolation to wall-clock `nowMs`. */
   update(nowMs: number): void {
     const p = this.#currentInterp(nowMs);
