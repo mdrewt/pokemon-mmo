@@ -24,15 +24,15 @@ export class InputController {
   #heldDirs: WasmFacing[] = [];
   /** Set on a Space press; consumed once by `takeJump()`. */
   #jumpLatched = false;
-  /** Set on a stop/cancel press (Escape); consumed once by `takeClear()`. A placeholder for the
-   *  real stop-movement actions (open menu, interact) until those exist. */
+  /** Set on a stop/cancel press (Escape); consumed once by `takeClear()`. In an overlay it closes the
+   *  screen (or flees a battle); in the overworld it stops/cancels the un-started move buffer. */
   #clearLatched = false;
   /** Set on a box-toggle press (B); consumed once by `takeToggleBox()`. */
   #toggleBoxLatched = false;
-  /** Set on a start-battle press (F); consumed once by `takeStartBattle()`. M7 manual encounter
-   *  trigger (proper encounter zones are M8). */
+  /** Set on a start-battle press (F); consumed once by `takeStartBattle()`. Manually seeks a wild
+   *  encounter (grass tiles also trigger encounters automatically while walking). */
   #startBattleLatched = false;
-  /** Set on a heal press (H); consumed once by `takeHeal()`. M7 on-demand heal (placeholder for a
+  /** Set on a heal press (H); consumed once by `takeHeal()`. On-demand full heal (placeholder for a
    *  future healing spot). */
   #healLatched = false;
   /** Set on a trade-toggle press (T); consumed once by `takeToggleTrade()`. M11.1 trading. */

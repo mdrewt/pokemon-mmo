@@ -11,8 +11,8 @@ that diverges from how you raise it.
 
 ## Status
 
-The proof-of-concept (movement, prediction, two-window sync) is complete, and the game loop is
-playable through **find → tame → fight**:
+The roadmap is **complete**: the full single-player loop plus multiplayer. Playable through
+**find → tame → raise → evolve/fuse → battle → trade & fight other players**:
 
 - **Walk** a shared map with another player, turn / step / jump, with client-side prediction and
   server reconciliation; one server-driven wandering NPC.
@@ -28,9 +28,17 @@ playable through **find → tame → fight**:
 - **Evolve & fuse** — **evolve** a monster once it meets a level/bond gate (branches you choose among),
   keeping its individuality; or **fuse** two monsters into a stronger offspring that inherits the
   better genes of each.
+- **Trade** (M11.1) — offer one of your monsters to another player; an **escrowed, dual-consent** swap
+  (each side puts up a monster, the initiator confirms, the swap is atomic — no dupes).
+- **PvP battles** (M11.2) — challenge another player; one **shared battle** both control, resolving
+  only when **both** have chosen their move (simultaneous, hidden picks); flee/disconnect forfeits.
+- **Ranked leagues** (M11.3) — a persistent **Elo ladder**: every ranked result moves both players'
+  ratings; a leaderboard shows the standings.
+- **Co-op raids** (M11.4) — team up with another player; **two allies vs an AI boss**, both submitting
+  each turn, sharing the XP when the boss falls.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the durable design record and the milestone roadmap
-(next: **M11 — multiplayer**: trade / PvP / co-op).
+See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the durable design record and **[docs/](docs/)** for the
+schema reference, reducer reference, game-systems guide, frontend guide, and known issues.
 
 ## Stack & layout
 
@@ -50,8 +58,10 @@ encounter tables, items) is **data** in `game-core/content/*.ron`, seeded into r
 
 ## Develop
 
-Prerequisites: Rust (stable + the `wasm32-unknown-unknown` target), the `spacetime` CLI 2.6,
-`wasm-pack`, and Node. Then:
+Prerequisites: Rust **1.96.0** (pinned in `rust-toolchain.toml`; the `spacetime` CLI auto-installs the
+`wasm32-unknown-unknown` target), the `spacetime` CLI **2.6** (it ships the module crate `spacetimedb`
+1.x — the CLI/product version and the crate version differ, which is expected), `wasm-pack`, and Node.
+Then:
 
 ```sh
 # 1. start a local SpacetimeDB node (separate terminal)

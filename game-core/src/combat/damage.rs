@@ -12,7 +12,9 @@ pub const MAX_VARIANCE_ROLL: u8 = 15;
 ///
 /// - `off` = attacker's offensive stat (Attack for Physical, Special for Special).
 /// - `def` = defender's `Defense`.
-/// - `stab` = the skill's affinity matches the attacker's primary affinity (Same-Type Attack Bonus).
+/// - `stab` = the skill's affinity matches the attacker's (single) battle affinity (Same-Type Attack
+///   Bonus). A `BattleMonster` carries one affinity — the server collapses a species' primary/secondary
+///   to the primary when it builds the combatant — so STAB is keyed on that one affinity.
 /// - `variance_roll` = `0..=MAX_VARIANCE_ROLL`, mapped to an 85..=100% multiplier.
 ///
 /// Returns 0 only when the hit has no effect; otherwise at least 1.
