@@ -246,10 +246,13 @@ pub struct Battle {
     /// (a PvP battle will carry two participant identities, so player_identity must not be unique).
     #[index(btree)]
     pub player_identity: Identity,
-    /// The opponent — the `state.enemy` side. For a PvE wild battle this EQUALS `player_identity` (a
-    /// self-sentinel meaning "no human opponent"); for a PvP battle it's the other player. Indexed so a
-    /// player's battle is found whether they are the challenger (`player_identity`) or the challenged
-    /// (`opponent_identity`). `is_pvp` is simply `player_identity != opponent_identity`.
+    /// The second human, if any. For a PvE wild battle this EQUALS `player_identity` (a self-sentinel
+    /// meaning "no human opponent"). For a PvP battle it's the opposing player (the `state.enemy` side).
+    /// For a co-op raid (`is_raid`) it's the ALLY (their monster sits on `state.player.team[1]`; the
+    /// `state.enemy` side is the AI boss). Indexed so a player's battle is found whether they are the
+    /// challenger (`player_identity`) or the second participant (`opponent_identity`). So
+    /// `is_multiplayer = player_identity != opponent_identity` (PvP OR raid) and
+    /// `is_pvp = is_multiplayer && !is_raid`.
     #[index(btree)]
     pub opponent_identity: Identity,
     pub state: BattleState,
@@ -866,7 +869,8 @@ fn type_chart_from_db(ctx: &ReducerContext) -> TypeChart {
 }
 
 /// Build a combatant from a derived stat block + a current HP (so battles use the monster's
-/// persistent HP). Only the primary affinity is used in combat for M7 (secondary is deferred).
+/// persistent HP). A `BattleMonster` carries a single affinity: only the species' primary affinity is
+/// used in combat (secondary affinities are a deferred depth layer).
 fn battle_monster(
     species_id: u32,
     level: u8,
@@ -1080,13 +1084,9 @@ fn variance(ctx: &ReducerContext) -> u8 {
     ctx.random::<u8>() % (MAX_VARIANCE_ROLL + 1)
 }
 
-/// Start a wild battle for `identity`: validate they can fight, build their party side, roll a wild
-/// from the zone's encounter table, and insert the battle row. Shared by the manual `start_battle`
-/// reducer and the grass-step trigger in `movement_tick`. Returns a descriptive `Err` (no party,
-/// already battling, …) which the manual path surfaces and the auto-trigger path ignores.
 /// Build a player's battle side from their active party: validates they have a non-fainted party, maps
 /// each member to a `BattleMonster`, and leads with the first conscious one. Returns the side + the
-/// party's `monster_id`s (for post-turn HP write-back). Shared by PvE encounters and PvP battles.
+/// party's `monster_id`s (for post-turn HP write-back). Shared by PvE encounters, PvP battles, and raids.
 fn build_party_side(
     ctx: &ReducerContext,
     identity: Identity,
@@ -2400,8 +2400,9 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
     Ok(())
 }
 
-/// Restore all the caller's monsters to full HP (a placeholder for a future healing spot / Pokémon
-/// Center — M7 lets the player heal on demand so a fainted party isn't a dead end).
+/// Restore all the caller's monsters to full HP — heal on demand so a fainted party isn't a dead end.
+/// A placeholder for a future healing spot / Pokémon Center: currently free, untimed, and overworld-only
+/// (see `docs/known-issues.md`).
 #[spacetimedb::reducer]
 pub fn heal_party(ctx: &ReducerContext) -> Result<(), String> {
     // A full heal mid-battle would void the whole weaken-and-recruit loop (heal to full after every

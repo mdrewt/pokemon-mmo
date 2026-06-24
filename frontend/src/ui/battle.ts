@@ -1,8 +1,14 @@
-// The battle screen — a DOM overlay. Renders the authoritative BattleState (the player's + enemy's
-// active monster with HP bars, a turn log, and a skill menu) and submits the chosen skill. It is a
-// pure view: it never computes outcomes (the server resolves every turn) and re-renders from the
-// `battle` subscription. Effectiveness hints are a lookup on the subscribed type_relation data — no
-// rule duplication, no wasm.
+// The battle screen — a DOM overlay. Renders the authoritative BattleState (active monsters with HP
+// bars, a turn log, and a skill menu) and submits the chosen skill. A pure view: it never computes
+// outcomes (the server resolves every turn) and re-renders from the `battle` subscription;
+// effectiveness hints are a lookup on the subscribed type_relation data (no rule duplication, no wasm).
+//
+// Handles all three battle modes (`#render`):
+//   • PvE   — your party vs a wild; recruit + switch available.
+//   • PvP   — vs another player. PERSPECTIVE-AWARE: the challenge ACCEPTER is `state.enemy`, so the
+//             viewer's own side is flipped to render at the bottom, and the log/result are flipped too.
+//   • Raid  — co-op: you + an ally on `state.player.team` vs an AI boss; shared result, no recruit/switch.
+// While waiting for the other player to submit (PvP/raid), shows a "waiting for opponent" state.
 
 import type { NetHandle } from '../net/connection';
 import type { BattleMonster, BattleSide } from '../module_bindings/types';

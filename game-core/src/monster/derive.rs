@@ -81,13 +81,11 @@ pub fn level_bounds(xp: Xp) -> (Level, Xp, Xp) {
     (level, floor, next)
 }
 
-/// Roll a fresh starter/wild individual of `species`. `next_u32` supplies randomness (the server
-/// wraps `ctx.rng()`); it is consumed in a fixed order — the five potential genes (hp, attack,
-/// defense, special, speed) then the temperament — so the result is deterministic for a given
-/// sequence. Begins at level 1, empty training, full HP.
-/// Roll just the innate individuality (per-stat genes + temperament) from the seeded source. Shared
-/// by starter rolls and wild encounters (which derive their stats at their own level), consumed in a
-/// fixed order — the five genes (hp, attack, defense, special, speed) then the temperament.
+/// Roll just the innate individuality (per-stat genes + temperament) from the seeded source. `next_u32`
+/// supplies randomness (the server wraps `ctx.rng()`) and is consumed in a FIXED order — the five genes
+/// (hp, attack, defense, special, speed) then the temperament — so the result is deterministic for a
+/// given sequence. Shared by starter rolls and wild encounters (which derive their stats at their own
+/// level).
 pub fn roll_individuality(next_u32: &mut dyn FnMut() -> u32) -> (Potential, Temperament) {
     let gene = |n: &mut dyn FnMut() -> u32| (n() % (Potential::MAX as u32 + 1)) as u8;
     let potential = Potential {
@@ -101,6 +99,9 @@ pub fn roll_individuality(next_u32: &mut dyn FnMut() -> u32) -> (Potential, Temp
     (potential, temperament)
 }
 
+/// Roll a fresh starter/wild individual of `species`: rolls its individuality (`roll_individuality`),
+/// then begins it at level 1 with empty training and full HP at `Bond(STARTER_BOND)`. Deterministic
+/// for a given `next_u32` sequence.
 pub fn roll_starter(species: &Species, next_u32: &mut dyn FnMut() -> u32) -> MonsterInstance {
     let (potential, temperament) = roll_individuality(next_u32);
 

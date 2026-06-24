@@ -1,9 +1,10 @@
-// Minimal app screen-state machine. The game has distinct screens (overworld gameplay, the monster
-// box, later battle and menus); this routes which one is active so input and UI don't tangle. It is
-// deliberately a plain enum + listeners — no FSM library (KISS). Added in M6 before the box/battle
-// UIs multiply.
+// Minimal app screen-state machine: routes which screen is active so input and UI don't tangle. A plain
+// enum + listeners, no FSM library (KISS). `main.ts` reacts to `onChange` to show/hide the overlays and
+// gate movement; the full-screen overlays (box/battle/trade/challenge) are each a DOM layer that reads
+// authoritative state and are EXITED in the game loop before the movement-prediction gate, so they can
+// always be closed (see `main.ts`). Movement input is only processed in `overworld`.
 
-export type Screen = 'overworld' | 'box' | 'battle' | 'trade' | 'challenge' | 'menu';
+export type Screen = 'overworld' | 'box' | 'battle' | 'trade' | 'challenge';
 
 export class ScreenManager {
   #current: Screen = 'overworld';
@@ -17,11 +18,6 @@ export class ScreenManager {
     if (screen === this.#current) return;
     this.#current = screen;
     for (const fn of this.#listeners) fn(screen);
-  }
-
-  /** Open `screen`, or return to overworld if it's already open (toggle). */
-  toggle(screen: Screen): void {
-    this.set(this.#current === screen ? 'overworld' : screen);
   }
 
   onChange(fn: (s: Screen) => void): () => void {

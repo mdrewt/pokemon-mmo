@@ -4,13 +4,16 @@ A 2D top-down, pixel-art multiplayer monster-taming game (Pokémon Ruby/Sapphire
 Server-authoritative: **SpacetimeDB holds canonical state; the client predicts and reconciles
 to the server, never the reverse.**
 
-> This document is the durable design record. The **POC** (M0–M5) is complete: join with a display
-> name, walk a small map (turn / walk / jump), synced to a second browser window, plus one
-> server-driven wandering NPC. The **game-systems phase** is in progress and now playable through the
-> core loop — **find → tame → fight**: rolled-individual monsters (M6), a turn-based battle system
-> (M7), and grass encounters + recruit-by-weaken + bait (M8). Movement keeps client prediction;
-> battles are server-resolved with no prediction (see [Battle, taming & content](#battle-taming--content-m6m8)).
-> Features beyond the current milestone are in [Scaling path](#scaling-path).
+> This document is the durable design record. **The roadmap is complete** (M0–M11). The POC (M0–M5)
+> established server-authoritative movement with client prediction, synced across two browser windows.
+> The game-systems phase (M6–M10) added rolled-individual monsters, turn-based server-resolved battles,
+> grass encounters + recruit-by-weaken, active raising (train/care), and evolution + fusion. The
+> multiplayer phase (M11) added trading, PvP battles, a ranked Elo ladder, and co-op raids. Movement
+> keeps client prediction; all battles are server-resolved with no prediction.
+>
+> This file covers the architecture, data model, prediction model, security invariants, and the
+> engineering principles. For reference material — the full table-by-table schema, the reducer catalog,
+> a gameplay-systems walkthrough, the frontend module map, and known issues — see **[docs/](docs/)**.
 
 ## Stack & crates
 
@@ -37,6 +40,9 @@ Two structural properties make desync hard to even express:
 
 ## Data model (SpacetimeDB tables)
 
+> This is the conceptual overview. The **complete table-by-table, column-by-column reference** (all 18
+> tables + RLS filters) lives in **[docs/data-model.md](docs/data-model.md)**.
+
 Entity/component split: one renderable `character` row per entity, plus a role row (`player`
 or `npc`) keyed by `entity_id`. Time columns are `i64` milliseconds since the unix epoch (`*_ms`)
 to round-trip with `game_core::Millis`.
@@ -52,25 +58,44 @@ to round-trip with `game_core::Millis`.
 - **`config`** (public, singleton) · **`movement_tick_schedule`**: `scheduled(movement_tick)`
   interval table — the server-paced movement loop (drains one queued move per character per tick).
 
-**Content (M6–M8), seeded at `init` from the `game-core` RON registry, read-only to clients:**
+**Content (M6–M10), seeded at `init` from the `game-core` RON registry, read-only to clients:**
 - **`species`** (public): templates — base `StatBlock`, affinities, `skills Vec<u32>` learnset,
-  `recruit_rate u16`, `sprite_id`. · **`skill`** (public): name/affinity/category/power. ·
+  `recruit_rate u16`, `evolutions`, `sprite_id`. · **`skill`** (public): name/affinity/category/power. ·
   **`type_relation`** (public): the affinity chart as rows (client shows effectiveness hints from
-  this data — not a duplicated rule). · **`item`** (public): bait templates (`recruit_bonus`). ·
-  **`encounter`** (**private**): per-zone weighted spawn table; the client never needs it, the
-  server reads it on a grass step (the table *is* the runtime cache — no per-tick RON re-parse).
+  this data — not a duplicated rule). · **`item`** (public): bait + training-food templates
+  (`recruit_bonus`, `train_stat`, `train_amount`). · **`fusion`** (public): fusion recipes
+  (`a + b → to`, order-independent). · **`encounter`** (**private**): per-zone weighted spawn table;
+  the client never needs it, the server reads it on a grass step (the table *is* the runtime cache —
+  no per-tick RON re-parse).
 
-**Player-owned state (M6–M8), public but RLS-scoped to the owner:**
+**Player-owned state (M6–M10), public but RLS-scoped to the owner:**
 - **`monster`** (public, indexed `owner_identity`): an owned individual — `species_id`, `nickname`,
   `level`/`xp`/`xp_floor`/`xp_next`, `potential` (genes), `temperament`, `training`, `bond`,
   `current_hp` (**persists between battles**), server-derived `derived StatBlock`, `party_slot
-  Option<u8>`. A **`client_visibility_filter`** RLS rule scopes rows to `owner_identity = :sender`
-  so hidden genes/stats never reach another client's wire.
-- **`battle`** (public, RLS-scoped to owner): the whole authoritative `BattleState` as one column,
-  plus `party_monster_ids` (HP write-back map), the rolled `wild_potential`/`wild_temperament` (so a
-  successful recruit rebuilds *that exact* wild), `last_events Vec<BattleEvent>` (turn log),
+  Option<u8>`, `evolves_to Vec<u32>` (server-computed eligibility). A **`client_visibility_filter`** RLS
+  rule scopes rows to `owner_identity = :sender` so hidden genes/stats never reach another client.
+- **`battle`** (public): the whole authoritative `BattleState` as one column. PK is a synthetic
+  `battle_id` (auto_inc; re-keyed from `player_identity` in M11.2 so two humans can share one row);
+  `player_identity` + `opponent_identity` are indexed participant columns (PvE: equal, a self-sentinel;
+  PvP: differ; raid: `opponent_identity` is the ally + `is_raid` set). RLS:
+  `player_identity = :sender OR opponent_identity = :sender`. Also carries
+  `party_monster_ids`/`opponent_monster_ids` (per-side HP write-back), the rolled
+  `wild_potential`/`wild_temperament` (recruit rebuilds *that exact* wild), `last_events` (turn log),
   `last_xp_gain`/`leveled_up`.
-- **`player_item`** (public, RLS-scoped to owner): owned item quantities (bait).
+- **`player_item`** (public, RLS-scoped to owner): owned item quantities (bait + food).
+
+**Multiplayer (M11), public:**
+- **`profile`**: a **persistent** ranked profile keyed by `identity` — `name`, `rating i32` (Elo),
+  `wins`/`losses`. Unlike the ephemeral `player` presence row it is never deleted, so a rating survives
+  disconnects. World-readable (the leaderboard).
+- **`trade_offer`** (RLS to the two parties): a dual-consent monster trade — a display-only
+  `MonsterCard` snapshot of each offered monster + a `TradeStatus`. The offered monster is *escrowed*
+  (the lock lives in this row; monster-mutating reducers reject a monster that appears here).
+- **`battle_challenge`** (RLS to the two parties): a pending PvP challenge or raid invite (`is_raid`
+  distinguishes them).
+- **`battle_action`** (RLS to `chooser_identity = :sender`): a player's chosen-but-unresolved skill for
+  a both-submit (PvP/raid) turn. RLS hides it from the opponent so picks are *simultaneous and secret*;
+  the server reads both and resolves once both have chosen.
 
 Domain types (`Direction`, `ActionState`, `MoveInput`, `StatBlock`, `Affinity`, `Temperament`,
 `BattleState`, `BattleEvent`, …) are defined in `game-core` and derive `SpacetimeType` only under its
