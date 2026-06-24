@@ -331,6 +331,15 @@ export const Potential = __t.object("Potential", {
 });
 export type Potential = __Infer<typeof Potential>;
 
+export const Profile = __t.object("Profile", {
+  identity: __t.identity(),
+  name: __t.string(),
+  rating: __t.i32(),
+  wins: __t.u32(),
+  losses: __t.u32(),
+});
+export type Profile = __Infer<typeof Profile>;
+
 export const Skill = __t.object("Skill", {
   skillId: __t.u32(),
   name: __t.string(),

@@ -20,10 +20,10 @@ mod types;
 mod world;
 
 pub use combat::{
-    battle_xp_reward, damage, pick_best_skill, resolve_enemy_turn, resolve_player_swap,
+    battle_xp_reward, damage, elo_update, pick_best_skill, resolve_enemy_turn, resolve_player_swap,
     resolve_turn, AttackEvent, BattleEvent, BattleMonster, BattleOutcome, BattleSide, BattleState,
     Category, Effectiveness, FaintEvent, Skill, SkillId, SwitchEvent, TypeChart, TypeRelation,
-    MAX_VARIANCE_ROLL,
+    MAX_VARIANCE_ROLL, STARTING_RATING,
 };
 pub use content::{
     load_encounters, load_fusions, load_items, load_skills, load_species, load_type_chart,

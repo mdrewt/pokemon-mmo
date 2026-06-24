@@ -15,6 +15,7 @@ import type {
   Monster,
   Player,
   PlayerItem,
+  Profile,
   Skill,
   Species,
   TradeOffer,
@@ -64,6 +65,8 @@ export class AuthoritativeStore {
   /** This client's OWN queued PvP actions (RLS hides the opponent's), keyed by row id — drives the
    *  "waiting for opponent" battle state without leaking the opponent's pending pick. */
   readonly battleActions = new Map<bigint, BattleAction>();
+  /** Persistent ranked profiles (the PvP ladder), keyed by identity hex. Public — the whole leaderboard. */
+  readonly profiles = new Map<string, Profile>();
 
   #charListeners = new Set<CharacterListener>();
   /** Fired on any species/monster change so the box UI can re-render (it's not real-time). */
@@ -207,6 +210,17 @@ export class AuthoritativeStore {
   hasQueuedAction(battleId: bigint): boolean {
     for (const a of this.battleActions.values()) if (a.battleId === battleId) return true;
     return false;
+  }
+
+  // ── Ranked profiles (leaderboard) ───────────────────────────────────────────
+
+  upsertProfile(row: Profile): void {
+    this.profiles.set(row.identity.toHexString(), row);
+    this.#emitChallengeChange(); // the leaderboard lives in the challenge overlay
+  }
+
+  removeProfile(hex: string): void {
+    if (this.profiles.delete(hex)) this.#emitChallengeChange();
   }
 
   #emit(ev: CharacterEvent): void {
