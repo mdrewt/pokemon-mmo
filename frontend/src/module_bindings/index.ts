@@ -47,6 +47,7 @@ import EnqueueMoveReducer from "./enqueue_move_reducer";
 import EvolveMonsterReducer from "./evolve_monster_reducer";
 import FuseMonstersReducer from "./fuse_monsters_reducer";
 import HealPartyReducer from "./heal_party_reducer";
+import InviteToRaidReducer from "./invite_to_raid_reducer";
 import JoinGameReducer from "./join_game_reducer";
 import OfferTradeReducer from "./offer_trade_reducer";
 import RenameMonsterReducer from "./rename_monster_reducer";
@@ -305,6 +306,7 @@ const reducersSchema = __reducers(
   __reducerSchema("evolve_monster", EvolveMonsterReducer),
   __reducerSchema("fuse_monsters", FuseMonstersReducer),
   __reducerSchema("heal_party", HealPartyReducer),
+  __reducerSchema("invite_to_raid", InviteToRaidReducer),
   __reducerSchema("join_game", JoinGameReducer),
   __reducerSchema("offer_trade", OfferTradeReducer),
   __reducerSchema("rename_monster", RenameMonsterReducer),

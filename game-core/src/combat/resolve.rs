@@ -258,6 +258,103 @@ pub fn resolve_turn(
     (next, events)
 }
 
+/// Resolve one turn of a CO-OP RAID (M11.4): two allied players (`player.team[0]` and `[1]`) both act
+/// against a shared boss (`enemy.active`), then the boss strikes one ally — all three in speed order
+/// (allies win ties). Purely additive (the server runs it for raids; PvE/PvP use `resolve_turn`), so
+/// it shares no logic path with them. `PlayerLost` = the raid wiped; `PlayerWon` = the boss fell.
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_coop_turn(
+    state: &BattleState,
+    ally_a_skill: &Skill,
+    ally_b_skill: &Skill,
+    boss_skill: &Skill,
+    chart: &TypeChart,
+    a_variance: u8,
+    b_variance: u8,
+    boss_variance: u8,
+) -> (BattleState, Vec<BattleEvent>) {
+    let mut next = state.clone();
+    let mut events = Vec::new();
+    if next.is_over() {
+        return (next, events);
+    }
+
+    // Actors: 0 = ally A (team[0]), 1 = ally B (team[1]), 2 = the boss (enemy active). Act in speed
+    // order; the stable sort keeps allies before the boss on a tie (players win ties, as in PvE).
+    let speed = |actor: u8, s: &BattleState| -> u16 {
+        match actor {
+            0 => s.player.team.first().map_or(0, |m| m.speed),
+            1 => s.player.team.get(1).map_or(0, |m| m.speed),
+            _ => s.enemy.active_ref().speed,
+        }
+    };
+    let mut order = [0u8, 1, 2];
+    order.sort_by_key(|&actor| core::cmp::Reverse(speed(actor, &next)));
+
+    for actor in order {
+        if actor == 2 {
+            // Boss strikes the current active ally (advance past a fainted one first).
+            next.player.advance_if_fainted();
+            if next.enemy.active_ref().is_fainted() || next.player.is_defeated() {
+                continue;
+            }
+            let attacker = next.enemy.active_ref().clone();
+            let (dmg, eff) = apply_attack(
+                &attacker,
+                next.player.active_mut(),
+                boss_skill,
+                chart,
+                boss_variance,
+            );
+            events.push(BattleEvent::Attack(AttackEvent {
+                by_player: false,
+                skill_id: boss_skill.id.0,
+                damage: dmg,
+                effectiveness: eff,
+            }));
+            if next.player.active_ref().is_fainted() {
+                events.push(BattleEvent::Fainted(FaintEvent {
+                    player_side: true,
+                    species_id: next.player.active_ref().species_id,
+                }));
+            }
+            continue;
+        }
+        // An ally attacks the boss (if both are alive).
+        let idx = actor as usize;
+        let ally_fainted = next
+            .player
+            .team
+            .get(idx)
+            .is_none_or(BattleMonster::is_fainted);
+        if ally_fainted || next.enemy.active_ref().is_fainted() {
+            continue;
+        }
+        let (skill, var) = if actor == 0 {
+            (ally_a_skill, a_variance)
+        } else {
+            (ally_b_skill, b_variance)
+        };
+        let attacker = next.player.team[idx].clone();
+        let (dmg, eff) = apply_attack(&attacker, next.enemy.active_mut(), skill, chart, var);
+        events.push(BattleEvent::Attack(AttackEvent {
+            by_player: true,
+            skill_id: skill.id.0,
+            damage: dmg,
+            effectiveness: eff,
+        }));
+        if next.enemy.active_ref().is_fainted() {
+            events.push(BattleEvent::Fainted(FaintEvent {
+                player_side: false,
+                species_id: next.enemy.active_ref().species_id,
+            }));
+        }
+    }
+
+    finalize(&mut next);
+    (next, events)
+}
+
 /// The enemy active attacks the player active (if it can), appending the attack + any faint event.
 /// Shared by the player's non-attack turns (recruit attempt, switch) where only the wild gets to act.
 fn enemy_acts(
@@ -422,6 +519,86 @@ mod tests {
 
     fn empty_chart() -> TypeChart {
         TypeChart::default()
+    }
+
+    #[test]
+    fn coop_both_allies_hit_the_boss() {
+        let state = BattleState::new(
+            BattleSide::new(vec![mon(100, 100), mon(90, 100)]), // two allies
+            BattleSide::new(vec![mon(10, 500)]),                // a tanky boss
+        );
+        let (next, events) = resolve_coop_turn(
+            &state,
+            &tackle(),
+            &tackle(),
+            &tackle(),
+            &empty_chart(),
+            15,
+            15,
+            15,
+        );
+        assert_eq!(next.outcome, BattleOutcome::Ongoing);
+        let ally_hits = events
+            .iter()
+            .filter(|e| matches!(e, BattleEvent::Attack(a) if a.by_player))
+            .count();
+        assert_eq!(ally_hits, 2, "both allies attacked the boss");
+        assert!(
+            next.enemy.active_ref().current_hp < 500,
+            "the boss took damage"
+        );
+    }
+
+    #[test]
+    fn coop_clears_when_the_boss_falls() {
+        let mut nuke = tackle();
+        nuke.power = 9999;
+        let state = BattleState::new(
+            BattleSide::new(vec![mon(100, 100), mon(90, 100)]),
+            BattleSide::new(vec![mon(10, 100)]),
+        );
+        let (next, _) = resolve_coop_turn(
+            &state,
+            &nuke,
+            &tackle(),
+            &tackle(),
+            &empty_chart(),
+            15,
+            15,
+            15,
+        );
+        assert_eq!(
+            next.outcome,
+            BattleOutcome::PlayerWon,
+            "boss fell → raid cleared"
+        );
+    }
+
+    #[test]
+    fn coop_wipes_when_the_last_ally_falls() {
+        let mut boss_nuke = tackle();
+        boss_nuke.power = 9999;
+        let mut downed = mon(50, 100);
+        downed.current_hp = 0; // ally A already fainted
+        let state = BattleState::new(
+            BattleSide::new(vec![downed, mon(50, 100)]), // A down, B still up
+            BattleSide::new(vec![mon(200, 500)]),        // fast boss one-shots the survivor
+        );
+        let (next, _) = resolve_coop_turn(
+            &state,
+            &tackle(),
+            &tackle(),
+            &boss_nuke,
+            &empty_chart(),
+            15,
+            15,
+            15,
+        );
+        assert_eq!(
+            next.outcome,
+            BattleOutcome::PlayerLost,
+            "team wiped → raid failed"
+        );
     }
 
     #[test]

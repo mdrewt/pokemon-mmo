@@ -89,6 +89,7 @@ export interface NetHandle {
   confirmTrade(offerId: bigint): void;
   cancelTrade(offerId: bigint): void;
   challengePlayer(toIdentity: Identity): void;
+  inviteToRaid(toIdentity: Identity): void;
   acceptChallenge(challengeId: bigint): void;
   declineChallenge(challengeId: bigint): void;
   disconnect(): void;
@@ -457,6 +458,9 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
       },
       challengePlayer: (toIdentity: Identity) => {
         call(conn.reducers.challengePlayer({ toIdentity }));
+      },
+      inviteToRaid: (toIdentity: Identity) => {
+        call(conn.reducers.inviteToRaid({ toIdentity }));
       },
       acceptChallenge: (challengeId: bigint) => {
         call(conn.reducers.acceptChallenge({ challengeId }));

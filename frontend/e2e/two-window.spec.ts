@@ -765,6 +765,86 @@ test.describe.serial('two-window integration', () => {
     }
   });
 
+  test('two players clear a co-op raid together (M11.4)', async () => {
+    test.setTimeout(90_000);
+    const ensureParty = async (page: Page): Promise<void> => {
+      if ((await snapshot(page)).monsters.some((m) => m.partySlot !== null)) return;
+      const boxMon = (await snapshot(page)).monsters[0];
+      expect(boxMon).toBeTruthy();
+      await page.locator('#app').click();
+      await page.keyboard.press('KeyB');
+      await expect(page.locator('#box-screen')).toBeVisible();
+      await page.locator(`#box-screen [data-monster-id="${boxMon!.monsterId}"]`).click();
+      await page.locator('#box-screen [data-party="0"]').click();
+      await expect
+        .poll(async () => (await snapshot(page)).monsters.some((m) => m.partySlot === 0))
+        .toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#box-screen')).toBeHidden();
+    };
+    for (const page of [pageA, pageB]) {
+      await page.locator('#app').click();
+      await page.keyboard.press('Escape');
+      await fleeIfBattling(page);
+      await ensureParty(page);
+      await page.keyboard.press('KeyH'); // heal
+    }
+
+    const idHexB = (await snapshot(pageB)).identityHex!;
+    // A invites B to a CO-OP RAID.
+    await pageA.keyboard.press('KeyC');
+    await expect(pageA.locator('#challenge-screen')).toBeVisible();
+    await pageA.locator(`#challenge-screen [data-raid-player="${idHexB}"]`).click();
+
+    // B receives the raid invite (isRaid) and accepts it.
+    await expect
+      .poll(async () => (await snapshot(pageB)).challenges.filter((c) => c.isRaid).length)
+      .toBe(1);
+    await pageB.keyboard.press('KeyC');
+    await expect(pageB.locator('#challenge-screen')).toBeVisible();
+    await pageB.locator('#challenge-screen [data-challenge-accept]').click();
+
+    // Both windows are now in the SAME raid (allies vs a boss).
+    for (const page of [pageA, pageB]) {
+      await expect.poll(async () => (await snapshot(page)).battle?.isRaid ?? false).toBe(true);
+      await expect(page.locator('#battle-screen')).toBeVisible();
+    }
+
+    // Each turn resolves only when BOTH allies have submitted (the boss is AI). Fight to a terminal.
+    const submitIfMyTurn = async (page: Page): Promise<void> => {
+      const g = await snapshot(page);
+      if (!g.battle || g.battle.outcome !== 'Ongoing' || g.battle.iSubmitted) return;
+      const skill = page.locator('#battle-screen [data-skill]').first();
+      if ((await skill.count()) > 0) await skill.click().catch(() => undefined);
+    };
+    let guard = 0;
+    while (guard++ < 250) {
+      const g = await snapshot(pageA);
+      if (!g.battle || g.battle.outcome !== 'Ongoing') break;
+      await submitIfMyTurn(pageA);
+      await submitIfMyTurn(pageB);
+      await pageA.waitForTimeout(120);
+    }
+
+    // The shared raid reached a terminal outcome, agreed by both windows (PlayerWon = cleared,
+    // PlayerLost = the team wiped) — both clients ran resolve_coop_turn against the same row.
+    const finalA = (await snapshot(pageA)).battle;
+    const finalB = (await snapshot(pageB)).battle;
+    expect(['PlayerWon', 'PlayerLost']).toContain(finalA?.outcome);
+    expect(finalB?.outcome).toBe(finalA?.outcome);
+    // Both allies share the result screen (PlayerWon → Victory for both, PlayerLost → Defeat).
+    const expected = finalA?.outcome === 'PlayerWon' ? 'Victory' : 'Defeat';
+    for (const page of [pageA, pageB]) {
+      await expect(page.locator('#battle-screen')).toContainText(expected);
+    }
+
+    // Dismiss → both return to the overworld.
+    await pageA.locator('#battle-screen').getByText('Continue').click();
+    for (const page of [pageA, pageB]) {
+      await expect.poll(async () => (await snapshot(page)).battle).toBeNull();
+    }
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

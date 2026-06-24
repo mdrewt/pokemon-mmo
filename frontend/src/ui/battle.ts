@@ -68,11 +68,34 @@ export class BattleScreen {
     if (!battle) return;
 
     const { state } = battle;
-    // Perspective: the challenge ACCEPTER is `state.enemy`, so render the VIEWER's own side at the
+    const myHex = this.#net.identityHex();
+    const viewerIsChallenger = battle.playerIdentity.toHexString() === myHex;
+
+    // Co-op RAID: both allies sit on `state.player.team` (challenger=0, accepter=1) vs the AI boss in
+    // `state.enemy`. The viewer controls their own monster; the boss is the shared foe.
+    if (battle.isRaid) {
+      const myIdx = viewerIsChallenger ? 0 : 1;
+      const me = state.player.team[myIdx];
+      const ally = state.player.team[viewerIsChallenger ? 1 : 0];
+      const boss = state.enemy.team[state.enemy.active];
+      if (!me || !boss) return;
+      this.#root.append(this.#combatant(boss, 'Boss ', true));
+      if (ally) this.#root.append(this.#allyPanel(ally));
+      this.#root.append(this.#log(battle, false, true, true), this.#combatant(me, '', false));
+      if (state.outcome.tag === 'Ongoing') {
+        if (this.#net.hasQueuedAction(battle.battleId)) this.#root.append(this.#waiting());
+        else this.#root.append(this.#skillMenu(me, state.player, boss, true));
+      } else {
+        // A raid is shared: PlayerWon = the team cleared it (XP shown), PlayerLost = the team wiped.
+        this.#root.append(this.#result(battle, false, true));
+      }
+      return;
+    }
+
+    // PvE / PvP perspective: the PvP ACCEPTER is `state.enemy`, so render the VIEWER's own side at the
     // bottom and the foe at the top regardless of which slot they occupy. For PvE the viewer is always
     // the player side, so this is a no-op there.
-    const myHex = this.#net.identityHex();
-    const viewerIsPlayer = battle.playerIdentity.toHexString() === myHex;
+    const viewerIsPlayer = viewerIsChallenger;
     const pvp = battle.playerIdentity.toHexString() !== battle.opponentIdentity.toHexString();
     const mySide = viewerIsPlayer ? state.player : state.enemy;
     const foeSide = viewerIsPlayer ? state.enemy : state.player;
@@ -96,6 +119,15 @@ export class BattleScreen {
     } else {
       this.#root.append(this.#result(battle, pvp, viewerIsPlayer));
     }
+  }
+
+  /** A compact panel for the co-op ally's monster (name + HP), shown beside the boss in a raid. */
+  #allyPanel(m: BattleMonster): HTMLElement {
+    const row = document.createElement('div');
+    row.style.cssText = 'align-self:flex-end;text-align:right;opacity:0.85;font-size:13px;';
+    const pct = m.maxHp > 0 ? Math.round((m.currentHp / m.maxHp) * 100) : 0;
+    row.textContent = `Ally: ${this.#speciesName(m.speciesId)}  (${pct}% HP)`;
+    return row;
   }
 
   #combatant(m: BattleMonster, prefix: string, alignEnd: boolean): HTMLElement {
@@ -139,6 +171,7 @@ export class BattleScreen {
     battle: NonNullable<ReturnType<NetHandle['battle']>>,
     pvp: boolean,
     viewerIsPlayer: boolean,
+    raid = false,
   ): HTMLElement {
     const el = document.createElement('div');
     el.style.cssText =
@@ -147,14 +180,16 @@ export class BattleScreen {
     // without advancing the turn counter — gating on turn===0 would swallow it). With no events, show
     // the opening line ONLY at the true start (turn 0); later empty-event states — e.g. a successful
     // recruit, which clears last_events without advancing the turn — render blank, not a stale "appeared".
-    const opening = pvp
-      ? 'The battle begins!'
-      : `A wild ${this.#speciesName(
-          battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
-        )} appeared!`;
+    const opening = raid
+      ? 'The raid begins!'
+      : pvp
+        ? 'The battle begins!'
+        : `A wild ${this.#speciesName(
+            battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
+          )} appeared!`;
     const lines =
       battle.lastEvents.length > 0
-        ? battle.lastEvents.map((ev) => this.#eventLine(ev, pvp, viewerIsPlayer))
+        ? battle.lastEvents.map((ev) => this.#eventLine(ev, pvp, viewerIsPlayer, raid))
         : battle.state.turn === 0
           ? [opening]
           : [];
@@ -167,17 +202,19 @@ export class BattleScreen {
   }
 
   /** Render one turn event to a log line, from the VIEWER's perspective (event flags are relative to
-   *  `state.player` = the challenger; flip them for the accepter). */
+   *  `state.player` = the challenger; flip them for the accepter). In a raid, `by_player` = an ally hit
+   *  the boss. */
   #eventLine(
     ev: NonNullable<ReturnType<NetHandle['battle']>>['lastEvents'][number],
     pvp: boolean,
     viewerIsPlayer: boolean,
+    raid = false,
   ): string {
-    const foeWord = pvp ? 'Your opponent' : 'The enemy';
+    const foeWord = raid ? 'The boss' : pvp ? 'Your opponent' : 'The enemy';
     if (ev.tag === 'Attack') {
       const a = ev.value;
-      const mine = a.byPlayer === viewerIsPlayer;
-      const who = mine ? 'You' : foeWord;
+      const mine = raid ? a.byPlayer : a.byPlayer === viewerIsPlayer;
+      const who = raid ? (a.byPlayer ? 'Your team' : 'The boss') : mine ? 'You' : foeWord;
       const skill = this.#net.skill(a.skillId)?.name ?? 'a move';
       const eff =
         a.effectiveness.tag === 'SuperEffective'
@@ -199,6 +236,9 @@ export class BattleScreen {
     // Faint
     const f = ev.value;
     const name = this.#speciesName(f.speciesId);
+    if (raid) {
+      return f.playerSide ? `${name} fainted!` : `The boss ${name} fell!`;
+    }
     const mine = f.playerSide === viewerIsPlayer;
     return mine
       ? `Your ${name} fainted!`
