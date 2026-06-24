@@ -351,7 +351,8 @@ type chart + readable core, visible XP, persistent HP (**done**) · M8 finding &
 encounters, recruit-by-weaken, bait, plus a voluntary in-battle switch (**done**) · M9 raising &
 growth — focus-training (food) + care (bond) (**done**) · M10 evolution & fusion — conditional
 branch evolution + fuse-with-inheritance, both keeping/combining individuality (**done**) · **M11
-multiplayer (next)** — trade / PvP leagues / co-op.
+multiplayer** — split into **M11.1 trading (monsters)** (**done**) · M11.2 PvP battles (next, incl.
+the battle `battle_id`/participant refactor) · M11.3 PvP leagues · M11.4 co-op.
 
 One PR per milestone → CI + the review gates (`reducer-security-auditor`, `desync-guard`,
 `/simplify`, `/code-review`) → merge, with the user verifying user-facing feel first. (See the
@@ -370,11 +371,14 @@ one is a *breaking schema change that is free now and a migration after launch*,
   `BattleState` that resolves only when *both* sides have submitted (the wild path becomes the
   degenerate "server fills the NPC action" case). Do the PK change *now*, while `--delete-data` is
   still acceptable. (Changing `BattleState` is a `game-core` signature change → run impact analysis.)
-- **No ownership-transfer / escrow primitive.** Every reducer authorizes `owner == ctx.sender`;
-  nothing mutates two players' rows under mutual consent. A naive `trade()` is the classic dupe/scam.
-  **Decide first:** a `trade_offer` escrow table — offered rows *locked* (battle/fuse/party reducers
-  reject a locked row, like `reject_if_in_battle`), dual-consent, then one transactional swap. Force
-  incoming monsters to `party_slot = None` and re-derive their stats on receipt.
+- **Ownership-transfer / escrow primitive — BUILT in M11.1.** A `trade_offer` table (RLS-scoped to the
+  two parties) carries a display-only `MonsterCard` snapshot so a counterparty can see the offered
+  monster *without* relaxing the per-owner `monster` RLS. Directed, dual-consent flow
+  (`offer → respond → confirm`); offered monsters are escrowed via `reject_if_in_trade` (wired into all
+  six monster-mutating reducers, mirroring `reject_if_in_battle`); `confirm_trade` re-reads both live
+  rows, re-checks ownership, and swaps `owner_identity` + clears `party_slot` + re-derives stats in one
+  transaction (atomic, no dupe). `client_disconnected` releases a departing player's offers. This is the
+  cross-player transaction backbone the rest of the economy reuses (item trading folds into it next).
 - **No schema-migration story; content is seeded only in `init`.** `--delete-data` is the only reset
   and `init` does not re-run on republish, so content edits never reach a live DB. **Decide first:**
   add new M11 tables as *additive* (no PK/type changes to existing tables); add an idempotent

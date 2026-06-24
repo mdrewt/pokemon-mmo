@@ -244,6 +244,24 @@ export const Monster = __t.object("Monster", {
 });
 export type Monster = __Infer<typeof Monster>;
 
+export const MonsterCard = __t.object("MonsterCard", {
+  monsterId: __t.u64(),
+  speciesId: __t.u32(),
+  nickname: __t.string(),
+  level: __t.u8(),
+  get derived() {
+    return StatBlock;
+  },
+  get potential() {
+    return Potential;
+  },
+  get temperament() {
+    return Temperament;
+  },
+  bond: __t.u16(),
+});
+export type MonsterCard = __Infer<typeof MonsterCard>;
+
 // The tagged union or sum type for the algebraic type `MoveInput`.
 export const MoveInput = __t.enum("MoveInput", {
   get Step() {
@@ -365,6 +383,30 @@ export const Temperament = __t.enum("Temperament", {
   Focused: __t.unit(),
 });
 export type Temperament = __Infer<typeof Temperament>;
+
+export const TradeOffer = __t.object("TradeOffer", {
+  id: __t.u64(),
+  fromIdentity: __t.identity(),
+  toIdentity: __t.identity(),
+  get fromCard() {
+    return MonsterCard;
+  },
+  get toCard() {
+    return __t.option(MonsterCard);
+  },
+  get status() {
+    return TradeStatus;
+  },
+  createdAtMs: __t.i64(),
+});
+export type TradeOffer = __Infer<typeof TradeOffer>;
+
+// The tagged union or sum type for the algebraic type `TradeStatus`.
+export const TradeStatus = __t.enum("TradeStatus", {
+  AwaitingRecipient: __t.unit(),
+  AwaitingInitiator: __t.unit(),
+});
+export type TradeStatus = __Infer<typeof TradeStatus>;
 
 export const Training = __t.object("Training", {
   hp: __t.u16(),

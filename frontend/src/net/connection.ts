@@ -16,6 +16,7 @@ import type {
   PlayerItem,
   Skill,
   Species,
+  TradeOffer,
   TypeRelationRow,
 } from '../module_bindings/types';
 import type { Identity } from 'spacetimedb';
@@ -51,6 +52,10 @@ export interface NetHandle {
   /** Owned monsters that form a valid fusion recipe with `monster` (a data lookup on the subscribed
    *  `fusion` table — not a computed outcome), each with the resulting offspring species id. */
   fusionPartners(monster: Monster): { partner: Monster; offspringSpeciesId: number }[];
+  /** Pending trade offers this client is party to (initiated or received). */
+  tradeOffers(): TradeOffer[];
+  /** Other online players the caller can trade with (excludes self), name + identity. */
+  tradablePlayers(): { identity: Identity; name: string }[];
 
   joinGame(name: string): void;
   enqueueMove(input: MoveInput, seq: bigint): void;
@@ -68,6 +73,10 @@ export interface NetHandle {
   attemptRecruit(useBait: boolean): void;
   closeBattle(): void;
   healParty(): void;
+  offerTrade(toIdentity: Identity, offeredMonsterId: bigint): void;
+  respondTrade(offerId: bigint, offeredMonsterId: bigint): void;
+  confirmTrade(offerId: bigint): void;
+  cancelTrade(offerId: bigint): void;
   disconnect(): void;
 }
 
@@ -155,6 +164,7 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
             'SELECT * FROM item',
             'SELECT * FROM player_item',
             'SELECT * FROM fusion',
+            'SELECT * FROM trade_offer',
           ]);
       })
       .onConnectError((_ctx: ErrorContext, error: Error) => {
@@ -245,6 +255,18 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
       store.clearBattle();
     });
 
+    conn.db.trade_offer.onInsert((_ctx: EventContext, row: TradeOffer) => {
+      store.upsertTradeOffer(row);
+    });
+    conn.db.trade_offer.onUpdate(
+      (_ctx: EventContext, _old: TradeOffer, row: TradeOffer) => {
+        store.upsertTradeOffer(row);
+      },
+    );
+    conn.db.trade_offer.onDelete((_ctx: EventContext, row: TradeOffer) => {
+      store.removeTradeOffer(row.id);
+    });
+
     const ownPlayer = (): Player | undefined => {
       const hex = identity?.toHexString();
       return hex ? store.playerByIdentityHex(hex) : undefined;
@@ -314,6 +336,14 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
         }
         return out;
       },
+      tradeOffers: () => [...store.tradeOffers.values()],
+      tradablePlayers: () => {
+        const hex = identity?.toHexString();
+        return [...store.playersByIdentity.values()]
+          .filter((p) => p.online && p.identity.toHexString() !== hex)
+          .map((p) => ({ identity: p.identity, name: p.name }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      },
       joinGame: (name: string) => {
         call(conn.reducers.joinGame({ name }));
       },
@@ -364,6 +394,18 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
       },
       healParty: () => {
         call(conn.reducers.healParty({}));
+      },
+      offerTrade: (toIdentity: Identity, offeredMonsterId: bigint) => {
+        call(conn.reducers.offerTrade({ toIdentity, offeredMonsterId }));
+      },
+      respondTrade: (offerId: bigint, offeredMonsterId: bigint) => {
+        call(conn.reducers.respondTrade({ offerId, offeredMonsterId }));
+      },
+      confirmTrade: (offerId: bigint) => {
+        call(conn.reducers.confirmTrade({ offerId }));
+      },
+      cancelTrade: (offerId: bigint) => {
+        call(conn.reducers.cancelTrade({ offerId }));
       },
       disconnect: () => conn.disconnect(),
     };

@@ -15,6 +15,7 @@ import type {
   PlayerItem,
   Skill,
   Species,
+  TradeOffer,
   TypeRelationRow,
 } from '../module_bindings/types';
 
@@ -54,6 +55,8 @@ export class AuthoritativeStore {
   readonly typeRelations = new Map<bigint, TypeRelationRow>();
   /** The caller's active battle, if any (RLS-scoped to the owner — at most one). */
   battle: Battle | undefined;
+  /** Pending trade offers this client is party to (RLS-scoped to from/to), keyed by offer id. */
+  readonly tradeOffers = new Map<bigint, TradeOffer>();
 
   #charListeners = new Set<CharacterListener>();
   /** Fired on any species/monster change so the box UI can re-render (it's not real-time). */
@@ -135,6 +138,29 @@ export class AuthoritativeStore {
       this.battle = undefined;
       this.#emitBattleChange();
     }
+  }
+
+  // ── Trade offers ────────────────────────────────────────────────────────────
+
+  #tradeListeners = new Set<() => void>();
+
+  /** Subscribe to trade-offer changes; returns an unsubscribe fn. */
+  onTradeChange(fn: () => void): () => void {
+    this.#tradeListeners.add(fn);
+    return () => this.#tradeListeners.delete(fn);
+  }
+
+  #emitTradeChange(): void {
+    for (const fn of this.#tradeListeners) fn();
+  }
+
+  upsertTradeOffer(row: TradeOffer): void {
+    this.tradeOffers.set(row.id, row);
+    this.#emitTradeChange();
+  }
+
+  removeTradeOffer(id: bigint): void {
+    if (this.tradeOffers.delete(id)) this.#emitTradeChange();
   }
 
   #emit(ev: CharacterEvent): void {

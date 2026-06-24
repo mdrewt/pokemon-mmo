@@ -35,6 +35,8 @@ export class InputController {
   /** Set on a heal press (H); consumed once by `takeHeal()`. M7 on-demand heal (placeholder for a
    *  future healing spot). */
   #healLatched = false;
+  /** Set on a trade-toggle press (T); consumed once by `takeToggleTrade()`. M11.1 trading. */
+  #toggleTradeLatched = false;
   #enabled = false;
 
   #onKeyDown = (e: KeyboardEvent): void => this.#handleKeyDown(e);
@@ -98,11 +100,25 @@ export class InputController {
     return h;
   }
 
+  /** Returns true once if the trade-toggle (T) was pressed since the last call. */
+  takeToggleTrade(): boolean {
+    const t = this.#toggleTradeLatched;
+    this.#toggleTradeLatched = false;
+    return t;
+  }
+
   #handleKeyDown(e: KeyboardEvent): void {
     if (e.repeat) return; // hold is handled by polling, not OS key-repeat
-    // Ignore game keys while typing in a text field (e.g. the box rename input).
+    // Ignore game keys while a form control has focus (the box rename input, the trade dropdowns) so
+    // typing/selecting in them doesn't also toggle a screen.
     const target = e.target as HTMLElement | null;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    if (
+      target &&
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable)
+    ) {
       return;
     }
     if (e.code === 'Space') {
@@ -126,6 +142,10 @@ export class InputController {
       this.#healLatched = true;
       return;
     }
+    if (e.code === 'KeyT') {
+      this.#toggleTradeLatched = true;
+      return;
+    }
     const dir = ARROW_TO_DIR[e.code];
     if (!dir) return;
     e.preventDefault();
@@ -147,5 +167,6 @@ export class InputController {
     this.#toggleBoxLatched = false;
     this.#startBattleLatched = false;
     this.#healLatched = false;
+    this.#toggleTradeLatched = false;
   }
 }
