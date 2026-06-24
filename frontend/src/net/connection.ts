@@ -76,6 +76,23 @@ function nowMs(): number {
 }
 
 /**
+ * Build the action-call seam: wraps a reducer-call promise so its rejection (the server's `Err`
+ * string) is surfaced via `onActionError` instead of being swallowed by `void`. Extracted so the
+ * "a rejected action reaches the handler / a resolved one doesn't" contract is unit-testable without
+ * a live connection. The MOVEMENT reducers deliberately do NOT go through this (their rejections are
+ * normal flow-control absorbed by reconciliation).
+ */
+export function makeActionCaller(
+  onActionError: (message: string) => void,
+): (p: Promise<void>) => void {
+  return (p) => {
+    void p.catch((e: unknown) => {
+      onActionError(e instanceof Error ? e.message : 'That action could not be completed.');
+    });
+  };
+}
+
+/**
  * Connect to SpacetimeDB, subscribe to the world tables, and resolve once the connection is
  * established (onConnect). Table rows stream into `store` via change callbacks.
  *
@@ -95,12 +112,8 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
   let status: ConnectionStatus = 'connecting';
 
   // A reducer call returns a Promise that REJECTS (with the server's Err string) on failure; route
-  // every call through this so the rejection is surfaced rather than discarded by `void`.
-  const call = (p: Promise<void>): void => {
-    void p.catch((e: unknown) => {
-      onActionError(e instanceof Error ? e.message : 'That action could not be completed.');
-    });
-  };
+  // every action call through this so the rejection is surfaced rather than discarded by `void`.
+  const call = makeActionCaller(onActionError);
 
   return new Promise<NetHandle>((resolve, reject) => {
     let settled = false;

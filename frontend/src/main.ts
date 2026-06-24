@@ -140,6 +140,23 @@ async function bootstrap(): Promise<void> {
   app.ticker.add(() => {
     if (!isWasmReady()) return;
     tryInitPredictor();
+
+    // Battle is fully server-driven (no prediction, no dependency on the own-character row). Handle it
+    // BEFORE the movement gates so keyboard flee works even when a battle opens before the predictor or
+    // own row exist (e.g. right after a reconnect) — otherwise the full-screen overlay traps the player
+    // with a dead Escape key (skill/recruit/swap still come from the overlay's own buttons). Drain the
+    // other one-shot latches so a key pressed mid-battle doesn't fire the instant we return to overworld.
+    if (screen.current() === 'battle') {
+      const flee = input.takeClear();
+      input.takeToggleBox();
+      input.takeStartBattle();
+      input.takeHeal();
+      input.takeJump();
+      if (flee) net.closeBattle();
+      hud.update();
+      return;
+    }
+
     if (!predictor) {
       hud.update();
       return;
@@ -167,12 +184,11 @@ async function bootstrap(): Promise<void> {
       const startBattlePressed = input.takeStartBattle();
       const healPressed = input.takeHeal();
       const jumpPressed = input.takeJump();
+      // Battle is handled before the movement gates above (it needs no predictor), so by here the
+      // screen is overworld or box.
       const current = screen.current();
 
-      if (current === 'battle') {
-        // Driven by the battle screen's on-screen buttons; Escape flees (close_battle).
-        if (stopPressed) net.closeBattle();
-      } else if (current === 'box') {
+      if (current === 'box') {
         if (toggleBox || stopPressed) screen.set('overworld');
       } else {
         // Overworld.

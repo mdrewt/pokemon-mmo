@@ -484,6 +484,11 @@ fn grant_starter(ctx: &ReducerContext, owner: Identity) {
         .insert(monster_row(owner, &core, &inst, Some(0)));
 }
 
+/// Largest a single item stack may grow to. Grants saturate here rather than wrapping the `u32`
+/// quantity — defensive against the first repeatable grant path (a shop/reward/quest) reusing this
+/// helper, where an unchecked `+=` would silently corrupt the stack to a tiny number on overflow.
+const MAX_ITEM_STACK: u32 = 9_999;
+
 /// Grant `qty` of `item_id` to `owner`, merging into the existing stack if there is one so a player
 /// holds at most ONE `player_item` row per item (the single-stack invariant the spend logic relies on).
 fn grant_item(ctx: &ReducerContext, owner: Identity, item_id: u32, qty: u32) {
@@ -494,14 +499,14 @@ fn grant_item(ctx: &ReducerContext, owner: Identity, item_id: u32, qty: u32) {
         .filter(owner)
         .find(|pi| pi.item_id == item_id)
     {
-        stack.quantity += qty;
+        stack.quantity = stack.quantity.saturating_add(qty).min(MAX_ITEM_STACK);
         ctx.db.player_item().id().update(stack);
     } else {
         ctx.db.player_item().insert(PlayerItem {
             id: 0, // auto_inc
             owner_identity: owner,
             item_id,
-            quantity: qty,
+            quantity: qty.min(MAX_ITEM_STACK),
         });
     }
 }
@@ -1566,6 +1571,10 @@ pub fn attempt_recruit(ctx: &ReducerContext, use_bait: bool) -> Result<(), Strin
 /// Center — M7 lets the player heal on demand so a fainted party isn't a dead end).
 #[spacetimedb::reducer]
 pub fn heal_party(ctx: &ReducerContext) -> Result<(), String> {
+    // A full heal mid-battle would void the whole weaken-and-recruit loop (heal to full after every
+    // turn). Healing is an overworld action — reject it during a battle. (A location/cost gate for the
+    // healing spot itself is deferred until the Pokémon-Center content exists.)
+    reject_if_in_battle(ctx)?;
     let monsters: Vec<Monster> = ctx
         .db
         .monster()

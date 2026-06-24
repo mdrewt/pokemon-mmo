@@ -115,14 +115,20 @@ export class BattleScreen {
     const el = document.createElement('div');
     el.style.cssText =
       'align-self:center;text-align:center;min-height:40px;display:flex;flex-direction:column;gap:2px;opacity:0.9;font-style:italic;';
+    // Show the turn's events whenever there are any (a failed recruit can push a "broke free" event
+    // without advancing the turn counter — gating on turn===0 would swallow it). With no events, show
+    // the opening line ONLY at the true start (turn 0); later empty-event states — e.g. a successful
+    // recruit, which clears last_events without advancing the turn — render blank, not a stale "appeared".
     const lines =
-      battle.state.turn === 0
-        ? [
-            `A wild ${this.#speciesName(
-              battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
-            )} appeared!`,
-          ]
-        : battle.lastEvents.map((ev) => this.#eventLine(ev));
+      battle.lastEvents.length > 0
+        ? battle.lastEvents.map((ev) => this.#eventLine(ev))
+        : battle.state.turn === 0
+          ? [
+              `A wild ${this.#speciesName(
+                battle.state.enemy.team[battle.state.enemy.active]?.speciesId ?? 0,
+              )} appeared!`,
+            ]
+          : [];
     for (const text of lines) {
       const line = document.createElement('div');
       line.textContent = text;

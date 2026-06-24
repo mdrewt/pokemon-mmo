@@ -357,6 +357,48 @@ One PR per milestone → CI + the review gates (`reducer-security-auditor`, `des
 `/simplify`, `/code-review`) → merge, with the user verifying user-facing feel first. (See the
 project plan/memory for the full vision.)
 
+### M11 entry-conditions (decide *before* building multiplayer)
+
+The pre-M11 review surfaced load-bearing single-player assumptions that M11 (trade / PvP / co-op)
+will fight. These are **decisions to make first**, not code to write early (YAGNI) — but the first
+one is a *breaking schema change that is free now and a migration after launch*, so sequence matters:
+
+- **Battle is keyed per-player → PvP can't share a battle row.** `battle`'s PK is `player_identity`
+  and its RLS filter is `player_identity = :sender`, so two humans can't see/act on one battle, and
+  `BattleState` models `player` vs an AI-driven `enemy`. **Decide first:** move to a synthetic
+  `battle_id` PK + a participant model (RLS = "visible if you're a participant"), and a symmetric
+  `BattleState` that resolves only when *both* sides have submitted (the wild path becomes the
+  degenerate "server fills the NPC action" case). Do the PK change *now*, while `--delete-data` is
+  still acceptable. (Changing `BattleState` is a `game-core` signature change → run impact analysis.)
+- **No ownership-transfer / escrow primitive.** Every reducer authorizes `owner == ctx.sender`;
+  nothing mutates two players' rows under mutual consent. A naive `trade()` is the classic dupe/scam.
+  **Decide first:** a `trade_offer` escrow table — offered rows *locked* (battle/fuse/party reducers
+  reject a locked row, like `reject_if_in_battle`), dual-consent, then one transactional swap. Force
+  incoming monsters to `party_slot = None` and re-derive their stats on receipt.
+- **No schema-migration story; content is seeded only in `init`.** `--delete-data` is the only reset
+  and `init` does not re-run on republish, so content edits never reach a live DB. **Decide first:**
+  add new M11 tables as *additive* (no PK/type changes to existing tables); add an idempotent
+  content-sync reducer (upsert content by stable id) separate from `init`, and re-derive affected
+  monster rows after a content change.
+- **Disconnect ends a battle by deleting it; there's no turn timeout.** Fine for PvE; in PvP it's a
+  rage-quit-voids-the-loss exploit and orphans the opponent. **Decide first:** disconnect/idle →
+  forfeit for the opponent (needs the shared-battle model above) + a battle turn-deadline checked by a
+  scheduled reducer.
+- **Subscriptions + the movement tick are O(all rows).** The client subscribes `SELECT *` per table
+  and `movement_tick` processes every character each step. RLS protects *private* data, but
+  `character`/`player` fan out globally. **Decide before raising concurrency:** add an
+  `#[index(btree)]` on `character.map_id` (the cheap unlock) and move to per-map/zone subscriptions +
+  per-zone tick scheduling — the schema is otherwise ready.
+- **CI blind spots to close as M11 adds surface:** the two-window e2e and the `reducer-security-auditor`
+  /`desync-guard` gates are not in CI (e2e is local-only — needs a published module), and a
+  forgotten `spacetime generate` ships stale bindings green. Add a bindings-drift check (or enforce
+  the manual gen-and-commit) and treat e2e as a required pre-merge gate.
+
+**Known low-severity items deferred (not blocking):** after a *diverging* movement reconcile while a
+key is held, `committedDir` isn't cleared, so re-issue can lag by one step (it self-corrects via the
+sustained-hold path). Fixing it precisely needs `reconcile` to report divergence + a predictor test;
+deferred to avoid a movement-prediction regression for a one-step latency edge.
+
 ### Frontend screen state (M6+)
 
 The frontend routes distinct screens (`overworld | box | battle | menu`) through a minimal
@@ -395,6 +437,21 @@ the pattern:
 - **Probabilistic e2e flows must be bounded *and* robust.** Tests of random mechanics (recruit, encounter)
   loop with a cap; make the inner action reliable (e.g. field the tankiest monster to survive longer)
   rather than just raising the cap.
+- **Content invariants live in `validate_content`, not in a reducer or an RON comment.** A rule like
+  "no duplicate fusion pair" or "an evolution/fusion-only form is never catchable in the wild" is real
+  content integrity; left to author discipline it fails silently (the first matching fusion recipe
+  wins by row order; a derived form sneaks into the encounter table). **Guard:** every such rule is a
+  pure check in `content/mod.rs::validate_content` with a unit test on a synthetic violation — the same
+  place dangling-skill/evolution/encounter refs are already caught. Species ids are **append-only**
+  (never reused/renumbered) so existing monster rows never dangle.
+- **Internal grants saturate and cap; they never `+=` unchecked.** A repeatable grant path (shop,
+  reward, quest) that does `quantity += qty` silently corrupts the stack on `u32` overflow. **Guard:**
+  the single `grant_item` helper uses `saturating_add(..).min(MAX_ITEM_STACK)`.
+- **Server-driven overlays handle their own input above the prediction gate.** The battle overlay is
+  fully server-driven and must not depend on the movement predictor existing; routing its input after
+  the `if (!predictor) return` gate traps the player (dead Escape) when a battle opens before the
+  predictor/own-row stream in (e.g. just after a reconnect). **Guard:** `main.ts` handles the battle
+  screen (flee on Escape, drain stray latches) *before* the predictor gate.
 
 ## Scaling path
 

@@ -159,8 +159,9 @@ pub fn validate_content() -> Result<(), String> {
             }
         }
     }
+    let encounters = load_encounters()?;
     // Every encounter must reference a real species, or a wild roll would hit a missing template.
-    for e in &load_encounters()?.entries {
+    for e in &encounters.entries {
         if !species_ids.contains(&e.species_id) {
             return Err(format!(
                 "encounter references unknown species id {}",
@@ -168,12 +169,68 @@ pub fn validate_content() -> Result<(), String> {
             ));
         }
     }
+    let fusions = load_fusions()?;
     // Every fusion recipe's parents + offspring must be real species.
-    for r in &load_fusions()? {
+    for r in &fusions {
         for id in [r.a, r.b, r.to] {
             if !species_ids.contains(&id) {
                 return Err(format!("fusion recipe references unknown species id {id}"));
             }
+        }
+    }
+    check_unique_fusion_pairs(&fusions)?;
+    check_encounters_exclude_derived(&species, &fusions, &encounters)?;
+    Ok(())
+}
+
+/// Set of species reachable only by evolving or fusing (every evolution target + every fusion
+/// offspring). These forms are obtained from another monster — never granted as a starter, never
+/// rolled in the wild. Centralizes the "derived form" rule so the invariants below stay honest.
+fn derived_forms(species: &[Species], fusions: &[FusionRecipe]) -> BTreeSet<u32> {
+    let mut derived = BTreeSet::new();
+    for sp in species {
+        for evo in &sp.evolutions {
+            derived.insert(evo.to);
+        }
+    }
+    for r in fusions {
+        derived.insert(r.to);
+    }
+    derived
+}
+
+/// A fusion's offspring is decided by the FIRST matching recipe ([`crate::find_fusion`]), so two
+/// recipes for the same unordered parent-pair would make the result depend on RON row order — a
+/// silent content trap. Reject duplicate pairs at load time instead.
+fn check_unique_fusion_pairs(fusions: &[FusionRecipe]) -> Result<(), String> {
+    let mut pairs = BTreeSet::new();
+    for r in fusions {
+        let key = (r.a.min(r.b), r.a.max(r.b));
+        if !pairs.insert(key) {
+            return Err(format!(
+                "duplicate fusion recipe for species pair {}+{}",
+                key.0, key.1
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Evolution/fusion-only forms must be obtained by evolving/fusing — never catchable in the wild.
+/// Enforce that no encounter entry rolls a derived form, so "obtainability" matches the design
+/// rather than relying on an author remembering not to list an evolved form in the encounter table.
+fn check_encounters_exclude_derived(
+    species: &[Species],
+    fusions: &[FusionRecipe],
+    encounters: &EncounterTable,
+) -> Result<(), String> {
+    let derived = derived_forms(species, fusions);
+    for e in &encounters.entries {
+        if derived.contains(&e.species_id) {
+            return Err(format!(
+                "encounter references species {} which is an evolution/fusion-only form",
+                e.species_id
+            ));
         }
     }
     Ok(())
@@ -269,6 +326,48 @@ mod tests {
             food.iter().any(|f| f.train_stat == Some(Stat::Attack)),
             "an Attack food exists"
         );
+    }
+
+    #[test]
+    fn rejects_duplicate_fusion_pairs() {
+        // Distinct pairs are fine, including the reversed-order lookup.
+        let ok = vec![
+            FusionRecipe { a: 1, b: 2, to: 10 },
+            FusionRecipe { a: 1, b: 3, to: 11 },
+        ];
+        assert!(check_unique_fusion_pairs(&ok).is_ok());
+        // The same unordered pair twice is rejected even when authored in the other order — otherwise
+        // find_fusion's first-match would silently pick whichever RON row parsed first.
+        let dup = vec![
+            FusionRecipe { a: 1, b: 2, to: 10 },
+            FusionRecipe { a: 2, b: 1, to: 14 },
+        ];
+        assert!(check_unique_fusion_pairs(&dup).is_err());
+    }
+
+    #[test]
+    fn rejects_wild_encounter_of_a_derived_form() {
+        let fusions = vec![FusionRecipe { a: 1, b: 2, to: 10 }];
+        // A base form (id 1) may be encountered.
+        let base = EncounterTable {
+            entries: vec![crate::taming::EncounterEntry {
+                species_id: 1,
+                weight: 1,
+                min_level: 1,
+                max_level: 3,
+            }],
+        };
+        assert!(check_encounters_exclude_derived(&[], &fusions, &base).is_ok());
+        // The fusion offspring (id 10) must never be catchable in the wild.
+        let derived = EncounterTable {
+            entries: vec![crate::taming::EncounterEntry {
+                species_id: 10,
+                weight: 1,
+                min_level: 1,
+                max_level: 3,
+            }],
+        };
+        assert!(check_encounters_exclude_derived(&[], &fusions, &derived).is_err());
     }
 
     #[test]

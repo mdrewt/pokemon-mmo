@@ -227,6 +227,56 @@ mod tests {
     }
 
     #[test]
+    fn derive_stats_at_level_one_and_at_the_cap_are_well_formed() {
+        let maxed = Potential {
+            hp: Potential::MAX,
+            attack: Potential::MAX,
+            defense: Potential::MAX,
+            special: Potential::MAX,
+            speed: Potential::MAX,
+        };
+        // Level 1 is the value every starter + fusion offspring first shows — every stat must be a
+        // positive number (a zero-attack level-1 monster would be a visible bug).
+        let lvl1 = derive_stats(
+            &test_species(),
+            &maxed,
+            &Training::default(),
+            Temperament::Hardy,
+            Level(1),
+        );
+        assert!(
+            lvl1.hp > 0
+                && lvl1.attack > 0
+                && lvl1.defense > 0
+                && lvl1.special > 0
+                && lvl1.speed > 0,
+            "level-1 stats are all positive"
+        );
+        // At the level cap with maxed genes + full training the clamp must hold (no overflow/panic),
+        // and a capped monster must out-stat its level-1 self (the raising payoff).
+        let training = Training {
+            attack: 252,
+            hp: 252,
+            defense: 6,
+            ..Training::default()
+        };
+        let capped = derive_stats(
+            &test_species(),
+            &maxed,
+            &training,
+            Temperament::Brave,
+            Level(Level::MAX),
+        );
+        // Computed at the cap without panicking, and a capped monster out-stats its level-1 self —
+        // the `.min(u16::MAX)` clamp keeps the result a plausible value rather than a wrapped tiny one.
+        assert!(
+            capped.attack > lvl1.attack,
+            "higher level yields higher stats"
+        );
+        assert!(capped.hp > lvl1.hp, "capped HP exceeds level-1 HP");
+    }
+
+    #[test]
     fn training_increases_stats() {
         let p = Potential::default();
         let untrained = derive_stats(
