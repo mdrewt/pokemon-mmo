@@ -131,8 +131,10 @@ module. The browser-side prediction WASM (`client-wasm`) is a separate `wasm-pac
 - Rust lint/format: `cargo clippy --all-targets` / `cargo fmt --check`
 - TS test: `vitest`; TS typecheck: `tsc --noEmit`; TS lint: `eslint .`
 
-Toolchain: Rust 1.81.0+ for the SpacetimeDB module; the `spacetime` CLI auto-installs the
-`wasm32-unknown-unknown` target.
+Toolchain: the workspace pins Rust **1.96.0** via `rust-toolchain.toml` (CI uses the same), so local
+builds match CI — bump that file deliberately rather than relying on a floating minimum. The
+SpacetimeDB module itself needs 1.81.0+, but the pin is the source of truth. The `spacetime` CLI
+auto-installs the `wasm32-unknown-unknown` target.
 
 The bindings in `frontend/src/module_bindings/` are TypeScript and are how the frontend
 talks to SpacetimeDB (subscribe to tables, call reducers). They are NOT the prediction WASM

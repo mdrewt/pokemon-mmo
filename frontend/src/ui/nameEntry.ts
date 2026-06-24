@@ -58,8 +58,22 @@ export function showNameEntry(): Promise<string> {
       cursor: 'pointer',
     } satisfies Partial<CSSStyleDeclaration>);
 
+    // A quiet link to the build-it-yourself tutorial (its own page; opens in a new tab so an
+    // in-progress session isn't lost).
+    const tutorial = document.createElement('a');
+    tutorial.href = '/tutorial.html';
+    tutorial.target = '_blank';
+    tutorial.rel = 'noopener';
+    tutorial.textContent = 'How is this built? Read the from-scratch tutorial →';
+    Object.assign(tutorial.style, {
+      color: '#7aa2e8',
+      fontSize: '14px',
+      textDecoration: 'none',
+      marginTop: '8px',
+    } satisfies Partial<CSSStyleDeclaration>);
+
     form.append(input, button);
-    overlay.append(title, form);
+    overlay.append(title, form, tutorial);
     document.body.appendChild(overlay);
     input.focus();
 

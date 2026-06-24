@@ -430,14 +430,15 @@ one is a *breaking schema change that is free now and a migration after launch*,
   forgotten `spacetime generate` ships stale bindings green. Add a bindings-drift check (or enforce
   the manual gen-and-commit) and treat e2e as a required pre-merge gate.
 
-**Known low-severity items deferred (not blocking):** after a *diverging* movement reconcile while a
-key is held, `committedDir` isn't cleared, so re-issue can lag by one step (it self-corrects via the
-sustained-hold path). Fixing it precisely needs `reconcile` to report divergence + a predictor test;
-deferred to avoid a movement-prediction regression for a one-step latency edge.
+**Resolved (was a deferred low-severity item):** after a *diverging* movement reconcile while a key is
+held, `committedDir` used to lag by one step before re-issuing. `Predictor.reconcile` now **returns
+whether the corrected tile diverged** (true only on a real server disagreement — a rejected/blocked
+move or teleport — false when prediction was correct), and the game loop clears `committedDir` on a
+divergence so a held key re-issues from the corrected position. Covered by two predictor unit tests.
 
 ### Frontend screen state (M6+)
 
-The frontend routes distinct screens (`overworld | box | battle | menu`) through a minimal
+The frontend routes distinct screens (`overworld | box | battle | trade | challenge`) through a minimal
 enum-driven `ScreenManager` (`ui/screen.ts`) — no FSM library. Movement input is gated to the
 overworld; menus are HTML overlays that read authoritative state from the store and call
 ownership-checked reducers (input → intent → reducer; subscription → state → render). They never

@@ -1,0 +1,291 @@
+/* Tutorial blog styling. A calm dark theme that matches the game's palette (deep navy + a
+   blue/green accent), tuned for long-form reading: a fixed sidebar TOC, a comfortable measure
+   for the prose, and clearly framed code blocks. */
+
+@import 'highlight.js/styles/atom-one-dark.css';
+
+:root {
+  --bg: #0c0e14;
+  --bg-panel: #141826;
+  --bg-code: #11141d;
+  --border: #28304a;
+  --text: #e8ecf5;
+  --text-dim: #9aa6c0;
+  --accent: #5f9bf0;
+  --accent-2: #5fd0a0;
+  --measure: 760px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.65;
+  font-size: 17px;
+}
+
+/* ---- Header ---- */
+.tut-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 24px;
+  background: rgba(12, 14, 20, 0.92);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+}
+.tut-back {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tut-back:hover {
+  text-decoration: underline;
+}
+.tut-brand {
+  color: var(--text-dim);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+/* ---- Layout ---- */
+.tut-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  align-items: start;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.tut-toc {
+  position: sticky;
+  top: 57px;
+  max-height: calc(100vh - 57px);
+  overflow-y: auto;
+  padding: 24px 12px 48px 24px;
+  font-size: 14.5px;
+}
+.tut-toc ol {
+  list-style: none;
+  counter-reset: chapter;
+}
+.tut-toc > ol > li {
+  counter-increment: chapter;
+  margin: 2px 0;
+}
+.tut-toc > ol > li > a {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+.tut-toc > ol > li > a::before {
+  content: counter(chapter, decimal-leading-zero) '  ';
+  color: var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.tut-toc > ol > li > a:hover {
+  color: var(--text);
+  background: var(--bg-panel);
+}
+.tut-toc > ol > li.active > a {
+  color: var(--text);
+  background: var(--bg-panel);
+  font-weight: 600;
+}
+.tut-subtoc {
+  list-style: none;
+  margin: 2px 0 8px 18px;
+  border-left: 1px solid var(--border);
+}
+.tut-subtoc a {
+  display: block;
+  padding: 3px 10px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 13.5px;
+}
+.tut-subtoc a:hover {
+  color: var(--accent);
+}
+
+/* ---- Article ---- */
+.tut-main {
+  min-width: 0;
+  padding: 24px 32px 80px;
+}
+.tut-article {
+  max-width: var(--measure);
+}
+.tut-article h1 {
+  font-size: 30px;
+  line-height: 1.25;
+  margin: 8px 0 8px;
+  letter-spacing: -0.01em;
+}
+.tut-article h2 {
+  font-size: 22px;
+  margin: 36px 0 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 70px;
+}
+.tut-article h3 {
+  font-size: 18px;
+  margin: 26px 0 10px;
+  color: var(--accent-2);
+  scroll-margin-top: 70px;
+}
+.tut-article p,
+.tut-article ul,
+.tut-article ol,
+.tut-article blockquote,
+.tut-article table {
+  margin: 14px 0;
+}
+.tut-article ul,
+.tut-article ol {
+  padding-left: 26px;
+}
+.tut-article li {
+  margin: 5px 0;
+}
+.tut-article a {
+  color: var(--accent);
+}
+.tut-article strong {
+  color: #fff;
+}
+.tut-article blockquote {
+  border-left: 3px solid var(--accent-2);
+  background: var(--bg-panel);
+  padding: 10px 16px;
+  border-radius: 0 6px 6px 0;
+  color: var(--text-dim);
+}
+.tut-article hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+/* Inline code */
+.tut-article code {
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.86em;
+}
+.tut-article :not(pre) > code {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #cfe0ff;
+}
+
+/* Code blocks */
+.tut-article pre {
+  position: relative;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 16px 0;
+}
+.tut-article pre code.hljs {
+  background: transparent;
+  padding: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.tut-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.tut-article pre:hover .tut-copy {
+  opacity: 1;
+}
+.tut-copy:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* Tables */
+.tut-article table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14.5px;
+}
+.tut-article th,
+.tut-article td {
+  border: 1px solid var(--border);
+  padding: 7px 11px;
+  text-align: left;
+}
+.tut-article th {
+  background: var(--bg-panel);
+}
+
+/* ---- Pager ---- */
+.tut-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: var(--measure);
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.tut-pager a {
+  flex: 1;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14.5px;
+}
+.tut-next {
+  text-align: right;
+}
+.tut-pager a:hover {
+  border-color: var(--accent);
+}
+
+/* ---- Narrow screens: collapse the sidebar above the article ---- */
+@media (max-width: 860px) {
+  .tut-body {
+    grid-template-columns: 1fr;
+  }
+  .tut-toc {
+    position: static;
+    max-height: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
