@@ -56,10 +56,10 @@ export class BattleScreen {
 
   /** Effectiveness of an attack affinity vs a defender affinity, from the subscribed chart. */
   #effectiveness(attack: string, defend: string): string {
-    const rel = this.#net.store.typeRelations.find(
-      (r) => r.attack.tag === attack && r.defend.tag === defend,
-    );
-    return rel?.effect.tag ?? 'Neutral';
+    for (const r of this.#net.store.typeRelations.values()) {
+      if (r.attack.tag === attack && r.defend.tag === defend) return r.effect.tag;
+    }
+    return 'Neutral';
   }
 
   #render(): void {

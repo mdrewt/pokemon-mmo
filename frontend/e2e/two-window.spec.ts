@@ -90,8 +90,20 @@ async function recruitOne(page: Page): Promise<void> {
       .toBe(true);
     await page.keyboard.press('KeyF');
     await expect.poll(async () => (await snapshot(page)).battle !== null).toBe(true);
+    // Field the highest-HP conscious member so the team survives longer → more recruit attempts.
+    const g0 = (await snapshot(page)).battle;
+    if (g0) {
+      let best = g0.playerActive;
+      g0.playerTeam.forEach((m, i) => {
+        if (m.currentHp > 0 && m.maxHp > g0.playerTeam[best]!.maxHp) best = i;
+      });
+      if (best !== g0.playerActive) {
+        await page.locator(`#battle-screen [data-swap="${best}"]`).click();
+        await expect.poll(async () => (await snapshot(page)).battle?.playerActive ?? -1).toBe(best);
+      }
+    }
     let guard = 0;
-    while (guard++ < 12) {
+    while (guard++ < 14) {
       const g = await snapshot(page);
       if (!g.battle || g.battle.outcome !== 'Ongoing') break;
       const before = g.battle.turn;
@@ -532,7 +544,7 @@ test.describe.serial('two-window integration', () => {
     // Fusion recipes cover every base cross-pair, so we just need two base monsters of DIFFERENT
     // species. We already own the recruited catch; recruit more until a different-species pair exists.
     let tries = 0;
-    while (tries++ < 8) {
+    while (tries++ < 12) {
       const mons = await baseMonsters();
       if (mons.length >= 2 && new Set(mons.map((m) => m.speciesId)).size >= 2) break;
       await recruitOne(pageA);
@@ -556,6 +568,23 @@ test.describe.serial('two-window integration', () => {
     expect(after.monsters.some((m) => m.speciesId >= 10 && m.speciesId <= 15)).toBe(true);
     expect(after.monsters.some((m) => m.monsterId === a.monsterId)).toBe(false);
     expect(after.monsters.some((m) => m.monsterId === b!.monsterId)).toBe(false);
+    await pageA.keyboard.press('Escape');
+    await expect(pageA.locator('#box-screen')).toBeHidden();
+  });
+
+  test('a rejected action surfaces an error toast instead of failing silently (hardening)', async () => {
+    // Care a monster twice in quick succession: the second call is inside the per-monster cooldown,
+    // so the server rejects it — and that rejection must now be shown to the player.
+    const monId = (await snapshot(pageA)).monsters[0]!.monsterId;
+    await pageA.locator('#app').click();
+    await pageA.keyboard.press('KeyB');
+    await expect(pageA.locator('#box-screen')).toBeVisible();
+    await pageA.locator(`#box-screen [data-monster-id="${monId}"]`).click();
+    await pageA.locator('#box-screen [data-care="1"]').click();
+    await pageA.locator('#box-screen [data-care="1"]').click(); // 2nd is within the cooldown → rejected
+    const errToast = pageA.locator('[data-toast="error"]');
+    await expect(errToast.first()).toBeVisible();
+    await expect(errToast.first()).toContainText('time'); // "...needs a little time before you care..."
     await pageA.keyboard.press('Escape');
     await expect(pageA.locator('#box-screen')).toBeHidden();
   });

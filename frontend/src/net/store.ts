@@ -49,8 +49,9 @@ export class AuthoritativeStore {
   readonly fusions = new Map<bigint, Fusion>();
   /** The caller's owned item stacks, keyed by row id (RLS-scoped to the owner). */
   readonly playerItems = new Map<bigint, PlayerItem>();
-  /** Type/affinity chart rows (seeded). */
-  readonly typeRelations: TypeRelationRow[] = [];
+  /** Type/affinity chart rows (seeded content), keyed by row id so a re-subscribe doesn't duplicate
+   *  them (all content tables are keyed Maps — idempotent on reconnect). */
+  readonly typeRelations = new Map<bigint, TypeRelationRow>();
   /** The caller's active battle, if any (RLS-scoped to the owner — at most one). */
   battle: Battle | undefined;
 
@@ -111,7 +112,7 @@ export class AuthoritativeStore {
   }
 
   upsertTypeRelation(row: TypeRelationRow): void {
-    this.typeRelations.push(row);
+    this.typeRelations.set(row.id, row);
   }
 
   /** Subscribe to battle changes; returns an unsubscribe fn. */
