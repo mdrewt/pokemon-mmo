@@ -124,17 +124,34 @@ pub fn roll_individuality(next_u32: &mut dyn FnMut() -> u32) -> (Potential, Temp
 }
 ```
 
-The randomness is *consumed in a fixed order* (five genes, then temperament), so for a given sequence
-of numbers the result is fully determined — testable and reproducible. The server feeds it
-`ctx.rng()`; a test feeds it a fixed sequence.
+Each gene is a number from `0` to `Potential::MAX` (31, IV-style), and the temperament is one of a
+fixed set of natures. The randomness is *consumed in a fixed order* (five genes, then temperament), so
+for a given sequence of numbers the result is fully determined — testable and reproducible. The server
+feeds it `ctx.rng()`; a test feeds it a fixed sequence.
 
 ### Stats are derived on the server, read on the client
 
-Final stats come from a pure formula, `derive_stats(species, potential, training, temperament,
-level)`, combining the species base, the genes, training, the nature's nudge, and the level. The
-**server computes it and stores it** in the `derived` column; the client just reads `derived` and
-renders a stat bar. The formula lives once, in `game-core`, and never runs in TypeScript — so the
-client can't be tricked into showing (or claiming) wrong stats.
+Final stats come from a pure formula, `derive_stats(species, potential, training, temperament, level)`.
+It's a classic integer formula (no floats, so it's deterministic) — for each stat:
+
+```rust
+let common = (2 * base + iv + ev / 4) * lvl / 100;
+let value = if stat == Stat::Hp {
+    common + lvl + 10          // HP gets a flat bonus and is never nature-affected
+} else {
+    let raw = common + 5;
+    if up == Some(stat) { raw * 11 / 10 }      // the nature's raised stat: +10%
+    else if down == Some(stat) { raw * 9 / 10 } // its lowered stat: −10%
+    else { raw }
+};
+```
+
+`base` is the species template, `iv` the gene, `ev` the training investment, and the temperament nudges
+one stat up 10% and another down 10%. The **server computes this and stores it** in the monster's
+`derived` column; the client just reads `derived` and renders a stat bar. The formula lives once, in
+`game-core`, and never runs in TypeScript — so the client can't be tricked into showing (or claiming)
+wrong stats. And because it's the same pure, deterministic style as everything else, training the same
+monster always yields the same numbers.
 
 ## Rolling a starter on join
 
@@ -179,7 +196,7 @@ third visibility mode, completing the set:
 |---|---|---|
 | `public` | `character`, `species` | everyone |
 | private (no `public`) | `encounter` | only the server |
-| `public` + RLS filter | `monster`, `battle`, `player_item` | only the owner |
+| `public` + RLS filter | `monster`, `battle`, `player_item` (items arrive in M8) | only the owner |
 
 ## Common pitfalls
 

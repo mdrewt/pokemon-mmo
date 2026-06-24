@@ -126,9 +126,29 @@ a plain number you *pass in*. The server passes its authoritative timestamp; the
 derived from `performance.now()`; a test passes whatever constant it likes. The rule never knows or
 cares where the number came from — which is exactly why it stays deterministic.
 
+Finally, the bundle of fields the movement rule actually reads and writes — a character's logical state:
+
+```rust
+/// The full logical state of a character that the movement rule reads and writes. Crosses the
+/// WASM boundary for prediction; not stored as a single table column (the table flattens it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CharacterState {
+    pub pos: TilePos,
+    pub facing: Direction,
+    pub action: ActionState,
+    /// When the current move started (drives the slide animation / drain timing).
+    pub move_started_at: Millis,
+}
+```
+
+Where it stands (`pos`), which way it faces (`facing`), what it's doing (`action`), and when its
+current move began (`move_started_at`). Keep these four fields in mind — they're exactly what
+`apply_move` is about to touch.
+
 ## The map
 
-The world, for now, is one hand-drawn 20×15 grid. From `game-core/src/world/map.rs`:
+The world, for now, is one hand-drawn grid — 20 tiles wide by 15 tall. From
+`game-core/src/world/map.rs`:
 
 ```rust
 /// The single POC map (20×15), hand-authored as string art (`#` blocked, `.` walkable, `,` tall
@@ -272,6 +292,14 @@ pub const MOVE_QUEUE_CAP: usize = 2;
 `STEP_MS` is the game's heartbeat: one tile every 200 ms. The server drains a move queue at this pace;
 the browser predicts at the same pace; the renderer animates a slide over this duration. One constant,
 shared everywhere, so the three can never disagree about how fast a character walks.
+
+`MOVE_QUEUE_CAP` is the other half of the rate limit: each character has a small buffer of pending
+moves, and it can hold at most **2**. The server (we'll see in Milestone 2) drains one per heartbeat
+and *rejects* a new move once the buffer is full. Together, the cap and the cadence mean a character
+advances at most one tile per 200 ms **no matter how fast a client sends input** — so a hostile client
+spamming the move command just fills its own little queue and gets told "no." Rate-limiting falls out
+of the buffer model instead of needing a per-move cooldown check. (That's Bet 1 again: the cap is an
+anti-flood guard against a client you don't trust.)
 
 ## Proving determinism
 

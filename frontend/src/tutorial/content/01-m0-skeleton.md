@@ -10,8 +10,10 @@ phase "contracts first.")
 
 ## The shape of the repository
 
-We're building four things that share code, so we use a **Cargo workspace** — Rust's way of keeping
-several crates (packages) in one repo with one lockfile and one `cargo build`.
+We're building four components — three Rust crates plus a TypeScript frontend — and the three Rust
+crates share code, so we put them in a **Cargo workspace**: Rust's way of keeping several crates
+(packages) in one repo with one lockfile and one `cargo build`. (The frontend isn't a Rust crate, so
+it lives alongside the workspace, not inside it.)
 
 ```text
 pokemon-mmo/
@@ -153,9 +155,12 @@ see this pattern constantly starting in the next chapter.
 
 ## Checkpoint
 
-You can't *run* anything yet (the crates are empty), but you can prove the skeleton is sound. After you
-add the three crate folders in the next chapters, `cargo build` from the root should compile all
-members, and `cargo clippy` should pass. For now, the milestone is done when the three config files
-above exist and `cargo metadata` (which reads the workspace without building) lists three members.
+You can't *run* anything yet — in fact, Cargo will *complain*, and that's expected. The workspace
+`members` list names three crates whose directories don't exist yet, so `cargo build` (or `cargo
+metadata`) errors with "failed to load manifest for workspace member" until the next chapter creates
+`game-core/`. That's fine: the milestone here is just the **three config files** (`Cargo.toml`,
+`rust-toolchain.toml`, `clippy.toml`), well-formed and committed. Once `game-core/Cargo.toml` exists in
+Milestone 1, `cargo build` will compile the workspace and `cargo clippy` will pass clean (and would
+fail loudly if you'd reached for a clock).
 
 Next, we give the skeleton a brain: the pure rules in `game-core`.

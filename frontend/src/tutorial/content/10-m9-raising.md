@@ -54,6 +54,7 @@ The reducer wraps it with the usual validation, and crucially applies the rule *
 pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Result<(), String> {
     reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?; // ownership check
+    reject_if_in_trade(ctx, monster_id)?;               // can't alter a monster that's escrowed (M11)
     // ...find the food item and the caller's stack of it...
     let stat = item.train_stat.ok_or("that item is not training food")?;
 
@@ -82,6 +83,7 @@ Bond grows through deliberate care, gated by a per-monster cooldown so it can't 
 pub fn care_for_monster(ctx: &ReducerContext, monster_id: u64) -> Result<(), String> {
     reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
+    reject_if_in_trade(ctx, monster_id)?; // same escrow guard every monster-mutating reducer uses
     if monster.bond >= Bond::MAX {
         return Err("this monster is already completely devoted to you".to_string());
     }

@@ -19,17 +19,17 @@ subscription is a live query: you get every current row, and every future change
 ```typescript
 const conn = DbConnection.builder()
   .withUri(uri)
-  .withModuleName(moduleName)
+  .withDatabaseName(moduleName)
   .onConnect((connection, id) => {
     connection
       .subscriptionBuilder()
-      .onApplied(() => { /* initial rows delivered */ })
+      .onApplied(() => { /* initial rows delivered — safe to start the loop */ })
       .subscribe([
         'SELECT * FROM character',
         'SELECT * FROM player',
         'SELECT * FROM monster',
         'SELECT * FROM battle',
-        // ...the rest of the world tables...
+        // ...the rest of the ~15 world tables; subscription order doesn't matter...
       ]);
   })
   .build();
@@ -37,7 +37,8 @@ const conn = DbConnection.builder()
 
 You write SQL-ish `SELECT`s, but you don't *query* repeatedly — you subscribe once and the server pushes
 diffs. Row callbacks (insert / update / delete) fire as the world changes, and we funnel them into a
-store.
+store. (The real builder also wires `onError`/`onDisconnect` handlers and resolves a connection promise
+in `onApplied` — trimmed here for clarity.)
 
 ## The store: a read-only mirror of truth
 
@@ -203,6 +204,10 @@ When you press a direction, the loop predicts immediately — it calls the WASM 
 your character moves *now*, before the server has even heard about it:
 
 ```typescript
+  // `room` = is there space to send another move without overflowing the server's buffer? (We flow-
+  // control against MOVE_QUEUE_CAP so the server never has to reject us for a full queue.)
+  const room = stored.row.moveQueue.length + predictor.pendingCount < cap;
+
   const dir = input.heldDir();
   if (dir === null) {
     committedDir = null;

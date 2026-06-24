@@ -89,7 +89,7 @@ band" and the game would feel broken.
 | Layer | Tool | Why this one |
 |---|---|---|
 | Shared rules | **Rust** | Compiles to both native (server) and WASM (browser) from one codebase. Strong types let us "make illegal states unrepresentable." |
-| Browser prediction | **WebAssembly** (via `wasm-pack`) | Runs the *same* Rust rule in the browser at near-native speed. |
+| Browser prediction | **WebAssembly** (via `wasm-pack`) | Runs the *same* Rust rule in the browser — compiled, not interpreted, so it's fast and (more importantly) byte-identical to the server. |
 | Backend | **SpacetimeDB 2.6** | A database where your game logic (Rust "reducers") runs *inside* the database, next to the data, in transactions. Clients subscribe to tables and get live updates. It also gives us row-level security for free. |
 | Frontend | **PixiJS v8** + **TypeScript** | A fast 2D WebGL renderer; TypeScript keeps the glue code honest. |
 
@@ -119,7 +119,8 @@ Each milestone chapter has the same shape, so you always know where to look:
 
 - **Goal** — the one thing this step accomplishes.
 - **Where it fits** — how it connects to what you've already built.
-- **The code** — real, verbatim excerpts from the project, with file paths.
+- **The code** — real excerpts from the project, with file paths. They're verbatim except where a long
+  body is shortened with a `// ...` marker to keep the focus on the part that's being taught.
 - **How it works** — a walkthrough.
 - **Common pitfalls** — the mistakes people actually make here.
 - **Alternatives & the honest verdict** — what else you could do, and whether you should.
