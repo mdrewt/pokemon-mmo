@@ -277,7 +277,7 @@ export function connect(): Promise<NetHandle> {
         const out: { partner: Monster; offspringSpeciesId: number }[] = [];
         for (const partner of ownMonsters()) {
           if (partner.monsterId === monster.monsterId) continue;
-          const recipe = store.fusions.find(
+          const recipe = [...store.fusions.values()].find(
             (f) =>
               (f.a === monster.speciesId && f.b === partner.speciesId) ||
               (f.a === partner.speciesId && f.b === monster.speciesId),

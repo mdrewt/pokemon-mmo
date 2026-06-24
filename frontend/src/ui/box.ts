@@ -64,7 +64,7 @@ export class BoxScreen {
   }
 
   #speciesName(m: Monster): string {
-    return this.#net.species(m.speciesId)?.name ?? `#${m.speciesId}`;
+    return this.#speciesNameById(m.speciesId);
   }
 
   #displayName(m: Monster): string {
@@ -341,27 +341,34 @@ export class BoxScreen {
     return row;
   }
 
+  /** A labelled row of action buttons (the Raise / Evolve / Fuse sections share this scaffold).
+   *  `emphasis` swaps in a highlighted panel + label color for the prominent Evolve prompt. */
+  #controlSection(labelText: string, buttons: HTMLElement[], emphasis = false): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = emphasis
+      ? 'display:flex;flex-direction:column;gap:6px;margin-top:8px;padding:10px;border-radius:8px;border:1px solid #6a8f3a;background:#1a2415;'
+      : 'display:flex;flex-direction:column;gap:6px;margin-top:6px;';
+    const label = document.createElement('span');
+    label.textContent = labelText;
+    label.style.cssText = emphasis ? `${LABEL_STYLE}color:#a7d36a;` : LABEL_STYLE;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+    row.append(...buttons);
+    wrap.append(label, row);
+    return wrap;
+  }
+
   /** Evolution prompt (shown only when the server marks the monster eligible): one button per
    *  eligible target species (a branch). Evolving keeps the monster's individuality. */
   #evolveControls(m: Monster): HTMLElement {
-    const wrap = document.createElement('div');
-    wrap.style.cssText =
-      'display:flex;flex-direction:column;gap:6px;margin-top:8px;padding:10px;border-radius:8px;border:1px solid #6a8f3a;background:#1a2415;';
-    const label = document.createElement('span');
-    label.textContent = '✨ READY TO EVOLVE';
-    label.style.cssText = `${LABEL_STYLE}color:#a7d36a;`;
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
-    for (const speciesId of m.evolvesTo) {
-      const name = this.#net.species(speciesId)?.name ?? `#${speciesId}`;
-      const b = this.#button(`Evolve into ${name}`);
+    const buttons = m.evolvesTo.map((speciesId) => {
+      const b = this.#button(`Evolve into ${this.#speciesNameById(speciesId)}`);
       b.dataset.evolve = String(speciesId); // test hook for the e2e
       b.style.background = '#4a7a2a';
       b.onclick = () => this.#net.evolveMonster(m.monsterId, speciesId);
-      row.append(b);
-    }
-    wrap.append(label, row);
-    return wrap;
+      return b;
+    });
+    return this.#controlSection('✨ READY TO EVOLVE', buttons, true);
   }
 
   /** Fusion: list owned monsters that form a recipe with this one (a data lookup), each showing the
@@ -370,49 +377,36 @@ export class BoxScreen {
     m: Monster,
     partners: { partner: Monster; offspringSpeciesId: number }[],
   ): HTMLElement {
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:6px;';
-    const label = document.createElement('span');
-    label.textContent = 'FUSE (consumes both)';
-    label.style.cssText = LABEL_STYLE;
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
-    for (const { partner, offspringSpeciesId } of partners) {
-      const offspring = this.#net.species(offspringSpeciesId)?.name ?? `#${offspringSpeciesId}`;
-      const b = this.#button(`+ ${this.#displayName(partner)} → ${offspring}`);
+    const buttons = partners.map(({ partner, offspringSpeciesId }) => {
+      const b = this.#button(
+        `+ ${this.#displayName(partner)} → ${this.#speciesNameById(offspringSpeciesId)}`,
+      );
       b.dataset.fuse = String(partner.monsterId); // test hook for the e2e
       b.style.background = '#5a3a78';
       b.onclick = () => this.#net.fuseMonsters(m.monsterId, partner.monsterId);
-      row.append(b);
-    }
-    wrap.append(label, row);
-    return wrap;
+      return b;
+    });
+    return this.#controlSection('FUSE (consumes both)', buttons);
   }
 
   /** The "Raise" controls: care (builds bond, cooldown-gated) + feed a training food per stat. */
   #raiseControls(m: Monster): HTMLElement {
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:6px;';
-    const label = document.createElement('span');
-    label.textContent = 'RAISE';
-    label.style.cssText = LABEL_STYLE;
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
-
     const care = this.#button('Care · +bond');
     care.dataset.care = '1'; // test hook for the e2e
     care.onclick = () => this.#net.careForMonster(m.monsterId);
-    row.append(care);
 
+    const buttons: HTMLElement[] = [care];
     for (const f of this.#net.foodItems()) {
       const b = this.#button(`Feed ${f.name} (×${f.quantity})`);
       b.dataset.feed = String(f.itemId); // test hook for the e2e
       b.onclick = () => this.#net.trainMonster(m.monsterId, f.itemId);
-      row.append(b);
+      buttons.push(b);
     }
+    return this.#controlSection('RAISE', buttons);
+  }
 
-    wrap.append(label, row);
-    return wrap;
+  #speciesNameById(speciesId: number): string {
+    return this.#net.species(speciesId)?.name ?? `#${speciesId}`;
   }
 
   #button(label: string, type: 'button' | 'submit' = 'button'): HTMLButtonElement {

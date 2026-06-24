@@ -526,6 +526,17 @@ fn caller_monster(ctx: &ReducerContext, monster_id: u64) -> Result<Monster, Stri
     Ok(monster)
 }
 
+/// Reject a monster-mutating action while the caller has an active battle. A `battle` holds a
+/// snapshot of its party, so evolving / fusing / training / re-slotting a combatant mid-battle would
+/// desync it — and fusing a combatant (which deletes the row) would dodge the post-turn HP write-back.
+/// The box UI is overworld-only, so in practice this only blocks a direct hostile reducer call.
+fn reject_if_in_battle(ctx: &ReducerContext) -> Result<(), String> {
+    if ctx.db.battle().player_identity().find(ctx.sender).is_some() {
+        return Err("you can't do that during a battle".to_string());
+    }
+    Ok(())
+}
+
 /// Spend one of an item stack (the caller already validated ownership + `quantity > 0`). The single
 /// place item consumption happens, so a future change (e.g. deleting empty stacks) lives here.
 fn consume_one(ctx: &ReducerContext, mut stack: PlayerItem) {
@@ -1146,6 +1157,7 @@ pub fn set_party_slot(
     monster_id: u64,
     slot: Option<u8>,
 ) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
 
     if let Some(s) = slot {
@@ -1177,6 +1189,7 @@ pub fn set_party_slot(
 /// and recomputes the monster's stats. The visible "raising shapes growth" loop.
 #[spacetimedb::reducer]
 pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
 
     let item = ctx
@@ -1208,6 +1221,7 @@ pub fn train_monster(ctx: &ReducerContext, monster_id: u64, item_id: u32) -> Res
 /// per-monster cooldown (`CARE_COOLDOWN_MS`), never an idle accrual. Validates ownership + cooldown.
 #[spacetimedb::reducer]
 pub fn care_for_monster(ctx: &ReducerContext, monster_id: u64) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
     // Already maxed → reject rather than burn the cooldown on a no-op gain.
     if monster.bond >= Bond::MAX {
@@ -1234,6 +1248,7 @@ pub fn evolve_monster(
     monster_id: u64,
     to_species_id: u32,
 ) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
     let mut monster = caller_monster(ctx, monster_id)?;
     let species = ctx
         .db
@@ -1263,6 +1278,7 @@ pub fn evolve_monster(
 /// exists for their species pair (rejects otherwise).
 #[spacetimedb::reducer]
 pub fn fuse_monsters(ctx: &ReducerContext, monster_a: u64, monster_b: u64) -> Result<(), String> {
+    reject_if_in_battle(ctx)?;
     if monster_a == monster_b {
         return Err("pick two different monsters to fuse".to_string());
     }
