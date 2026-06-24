@@ -353,7 +353,8 @@ growth — focus-training (food) + care (bond) (**done**) · M10 evolution & fus
 branch evolution + fuse-with-inheritance, both keeping/combining individuality (**done**) · **M11
 multiplayer** — split into **M11.1 trading (monsters)** (**done**) · **M11.2 PvP battles** (**done**:
 stage 1 `battle_id` re-key + stage 2 challenge→shared-battle, resolve-when-both-submit, forfeit) ·
-M11.3 PvP leagues (next) · M11.4 co-op.
+**M11.3 PvP leagues** (**done**: persistent rating ladder — Elo on a `profile` table updated on every
+ranked result) · M11.4 co-op (next).
 
 One PR per milestone → CI + the review gates (`reducer-security-auditor`, `desync-guard`,
 `/simplify`, `/code-review`) → merge, with the user verifying user-facing feel first. (See the

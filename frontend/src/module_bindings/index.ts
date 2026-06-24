@@ -72,6 +72,7 @@ import MonsterRow from "./monster_table";
 import NpcRow from "./npc_table";
 import PlayerRow from "./player_table";
 import PlayerItemRow from "./player_item_table";
+import ProfileRow from "./profile_table";
 import SkillRow from "./skill_table";
 import SpeciesRow from "./species_table";
 import TradeOfferRow from "./trade_offer_table";
@@ -226,6 +227,17 @@ const tablesSchema = __schema({
       { name: 'player_item_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, PlayerItemRow),
+  profile: __table({
+    name: 'profile',
+    indexes: [
+      { accessor: 'identity', name: 'profile_identity_idx_btree', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'profile_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, ProfileRow),
   skill: __table({
     name: 'skill',
     indexes: [

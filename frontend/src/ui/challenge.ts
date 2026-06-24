@@ -73,7 +73,16 @@ export class ChallengeScreen {
     hint.textContent = 'Esc to close';
     hint.style.cssText = 'opacity:0.6;font-size:12px;';
     header.append(title, hint);
-    this.#root.append(header, this.#challengesSection(), this.#playersSection());
+    this.#root.append(
+      header,
+      this.#challengesSection(),
+      this.#playersSection(),
+      this.#leaderboardSection(),
+    );
+  }
+
+  #rating(hex: string): number | undefined {
+    return this.#net.store.profiles.get(hex)?.rating;
   }
 
   // ── Pending challenges ───────────────────────────────────────────────────────
@@ -140,9 +149,10 @@ export class ChallengeScreen {
       const hex = p.identity.toHexString();
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;gap:12px;align-items:center;';
+      const rating = this.#rating(hex);
       const name = document.createElement('span');
-      name.textContent = p.name;
-      name.style.cssText = 'min-width:120px;';
+      name.textContent = rating !== undefined ? `${p.name}  (${rating})` : p.name;
+      name.style.cssText = 'min-width:160px;';
       row.append(name);
       if (challenged.has(hex)) {
         row.append(this.#muted('challenged'));
@@ -154,6 +164,36 @@ export class ChallengeScreen {
       }
       box.append(row);
     }
+    return box;
+  }
+
+  // ── Leaderboard ──────────────────────────────────────────────────────────────
+
+  #leaderboardSection(): HTMLElement {
+    const box = this.#panel('Leaderboard');
+    const ladder = this.#net.leaderboard();
+    if (ladder.length === 0) {
+      box.append(this.#muted('No ranked players yet.'));
+      return box;
+    }
+    const myHex = this.#net.identityHex();
+    ladder.forEach((p, i) => {
+      const row = document.createElement('div');
+      const mine = p.identity.toHexString() === myHex;
+      row.dataset.rank = String(i + 1);
+      row.style.cssText = `display:flex;gap:12px;align-items:baseline;${mine ? 'font-weight:700;color:#cfe3ff;' : ''}`;
+      const rank = document.createElement('span');
+      rank.textContent = `#${i + 1}`;
+      rank.style.cssText = 'min-width:32px;opacity:0.7;';
+      const name = document.createElement('span');
+      name.textContent = p.name || 'Player';
+      name.style.cssText = 'min-width:120px;';
+      const score = document.createElement('span');
+      score.textContent = `${p.rating}  ·  ${p.wins}W ${p.losses}L`;
+      score.style.cssText = 'opacity:0.85;font-variant-numeric:tabular-nums;';
+      row.append(rank, name, score);
+      box.append(row);
+    });
     return box;
   }
 

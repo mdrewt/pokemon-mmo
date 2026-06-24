@@ -13,7 +13,7 @@
 
 use game_core::{
     apply_care, apply_move, apply_training, attempt_recruit as recruit_succeeds, battle_xp_reward,
-    derive_stats, eligible_evolutions, encounter_triggers, find_fusion, fuse_offspring,
+    derive_stats, eligible_evolutions, elo_update, encounter_triggers, find_fusion, fuse_offspring,
     level_bounds, load_encounters, load_fusions, load_items, load_skills, load_species,
     load_type_chart, npc_decide, pick_best_skill, poc_map, recruit_chance, resolve_enemy_turn,
     resolve_player_swap, resolve_turn, roll_individuality, roll_starter, xp_for_level, ActionState,
@@ -21,7 +21,7 @@ use game_core::{
     CharacterState, Direction, Effectiveness, EncounterTable, Evolution, FusionRecipe, Level,
     Millis, MonsterInstance, MoveInput, NpcParams, Potential, Skill as CoreSkill,
     Species as CoreSpecies, SpeciesId, Stat, StatBlock, Temperament, TileMap, TilePos, Training,
-    TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STEP_MS,
+    TypeChart, Xp, MAX_VARIANCE_ROLL, MOVE_QUEUE_CAP, STARTING_RATING, STEP_MS,
 };
 use spacetimedb::rand::Rng;
 use spacetimedb::{
@@ -89,6 +89,19 @@ pub struct Player {
     /// Highest enqueue `seq` the server has accepted — the reconciliation ack. Never trusted for
     /// authority.
     pub last_input_seq: u64,
+}
+
+/// A player's PERSISTENT ranked profile (M11.3) — keyed by identity and never deleted (unlike the
+/// ephemeral `player` presence row), so a ladder rating survives disconnects. Public so every client
+/// can render the leaderboard. Created on first join; updated when a ranked (PvP) battle ends.
+#[spacetimedb::table(name = profile, public)]
+pub struct Profile {
+    #[primary_key]
+    pub identity: Identity,
+    pub name: String,
+    pub rating: i32,
+    pub wins: u32,
+    pub losses: u32,
 }
 
 /// Server-controlled wander state for an NPC entity.
@@ -1241,6 +1254,7 @@ pub fn client_disconnected(ctx: &ReducerContext) {
         if is_pvp(&battle) && !battle.state.is_over() {
             battle.state.outcome = forfeit_outcome(&battle, ctx.sender);
             persist_battle_hp(ctx, &battle);
+            apply_pvp_rating(ctx, &battle); // disconnecting counts as a ranked loss
             ctx.db.battle().battle_id().update(battle);
         } else {
             ctx.db.battle().battle_id().delete(battle.battle_id);
@@ -1280,10 +1294,18 @@ pub fn join_game(ctx: &ReducerContext, name: String) -> Result<(), String> {
     ctx.db.player().insert(Player {
         identity: ctx.sender, // identity ONLY from the framework, never a client field
         entity_id,
-        name,
+        name: name.clone(),
         online: true,
         last_input_seq: 0,
     });
+
+    // Ensure a PERSISTENT ranked profile exists (keyed by identity; survives disconnects) and keep its
+    // display name current.
+    let mut profile = get_or_init_profile(ctx, ctx.sender);
+    if profile.name != name {
+        profile.name = name;
+        ctx.db.profile().identity().update(profile);
+    }
 
     // First-ever join grants a starter monster + starter items; returning players keep what they have.
     if first_join {
@@ -1780,6 +1802,48 @@ pub fn cancel_trade(ctx: &ReducerContext, offer_id: u64) -> Result<(), String> {
 /// Cap on a player's simultaneously-issued challenges (anti-flood).
 const MAX_OPEN_CHALLENGES: usize = 16;
 
+/// The player's PERSISTENT ranked profile, creating a default one (rating = `STARTING_RATING`) if it
+/// doesn't exist yet. Keyed by identity, so it survives disconnects.
+fn get_or_init_profile(ctx: &ReducerContext, identity: Identity) -> Profile {
+    if let Some(p) = ctx.db.profile().identity().find(identity) {
+        return p;
+    }
+    let name = ctx
+        .db
+        .player()
+        .identity()
+        .find(identity)
+        .map(|p| p.name)
+        .unwrap_or_default();
+    ctx.db.profile().insert(Profile {
+        identity,
+        name,
+        rating: STARTING_RATING,
+        wins: 0,
+        losses: 0,
+    })
+}
+
+/// Apply a decisive PvP result to BOTH players' ladder ratings (winner/loser read from the challenger-
+/// perspective outcome) via the game-core Elo rule. No-op for a non-decisive or PvE battle. Call EXACTLY
+/// once per battle, at the terminal transition (resolve / forfeit / disconnect).
+fn apply_pvp_rating(ctx: &ReducerContext, battle: &Battle) {
+    let (winner, loser) = match battle.state.outcome {
+        BattleOutcome::PlayerWon => (battle.player_identity, battle.opponent_identity),
+        BattleOutcome::PlayerLost => (battle.opponent_identity, battle.player_identity),
+        _ => return,
+    };
+    let mut wp = get_or_init_profile(ctx, winner);
+    let mut lp = get_or_init_profile(ctx, loser);
+    let (nw, nl) = elo_update(wp.rating, lp.rating);
+    wp.rating = nw;
+    wp.wins = wp.wins.saturating_add(1);
+    lp.rating = nl;
+    lp.losses = lp.losses.saturating_add(1);
+    ctx.db.profile().identity().update(wp);
+    ctx.db.profile().identity().update(lp);
+}
+
 /// Delete every queued PvP action for a battle (after a turn resolves, or when the battle ends).
 fn clear_battle_actions(ctx: &ReducerContext, battle_id: u64) {
     let ids: Vec<u64> = ctx
@@ -1984,6 +2048,7 @@ pub fn submit_action(ctx: &ReducerContext, skill_id: u32) -> Result<(), String> 
             battle.last_events = events;
             clear_battle_actions(ctx, battle.battle_id); // next turn starts fresh
             persist_battle_hp(ctx, &battle); // both sides' HP carries out of the PvP battle
+            apply_pvp_rating(ctx, &battle); // no-op unless this turn was decisive
             ctx.db.battle().battle_id().update(battle);
         }
         return Ok(());
@@ -2201,6 +2266,7 @@ pub fn close_battle(ctx: &ReducerContext) -> Result<(), String> {
         battle.state.outcome = forfeit_outcome(&battle, ctx.sender);
         persist_battle_hp(ctx, &battle);
         clear_battle_actions(ctx, battle.battle_id); // no more turns
+        apply_pvp_rating(ctx, &battle); // forfeiting counts as a ranked loss
         ctx.db.battle().battle_id().update(battle);
         return Ok(());
     }

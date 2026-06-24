@@ -16,6 +16,7 @@ import type {
   MoveInput,
   Player,
   PlayerItem,
+  Profile,
   Skill,
   Species,
   TradeOffer,
@@ -62,6 +63,10 @@ export interface NetHandle {
   battleChallenges(): BattleChallenge[];
   /** Whether this client has already queued its action for the current PvP turn (waiting for opponent). */
   hasQueuedAction(battleId: bigint): boolean;
+  /** The ranked ladder (all persistent profiles), highest rating first. */
+  leaderboard(): Profile[];
+  /** This client's own ranked profile, if it has one yet. */
+  myProfile(): Profile | undefined;
 
   joinGame(name: string): void;
   enqueueMove(input: MoveInput, seq: bigint): void;
@@ -176,6 +181,7 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
             'SELECT * FROM trade_offer',
             'SELECT * FROM battle_challenge',
             'SELECT * FROM battle_action',
+            'SELECT * FROM profile',
           ]);
       })
       .onConnectError((_ctx: ErrorContext, error: Error) => {
@@ -292,6 +298,16 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
       store.removeBattleAction(row.id);
     });
 
+    conn.db.profile.onInsert((_ctx: EventContext, row: Profile) => {
+      store.upsertProfile(row);
+    });
+    conn.db.profile.onUpdate((_ctx: EventContext, _old: Profile, row: Profile) => {
+      store.upsertProfile(row);
+    });
+    conn.db.profile.onDelete((_ctx: EventContext, row: Profile) => {
+      store.removeProfile(row.identity.toHexString());
+    });
+
     const ownPlayer = (): Player | undefined => {
       const hex = identity?.toHexString();
       return hex ? store.playerByIdentityHex(hex) : undefined;
@@ -364,6 +380,11 @@ export function connect(onActionError: (message: string) => void): Promise<NetHa
       tradeOffers: () => [...store.tradeOffers.values()],
       battleChallenges: () => [...store.battleChallenges.values()],
       hasQueuedAction: (battleId: bigint) => store.hasQueuedAction(battleId),
+      leaderboard: () => [...store.profiles.values()].sort((a, b) => b.rating - a.rating),
+      myProfile: () => {
+        const hex = identity?.toHexString();
+        return hex ? store.profiles.get(hex) : undefined;
+      },
       tradablePlayers: () => {
         const hex = identity?.toHexString();
         return [...store.playersByIdentity.values()]

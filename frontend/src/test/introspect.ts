@@ -70,6 +70,8 @@ export interface GameSnapshot {
   }[];
   /** Pending PvP challenges this client is party to (M11.2), for challenge-flow assertions. */
   challenges: { id: string; fromHex: string; toHex: string }[];
+  /** This client's own ranked profile (M11.3), or null before it exists. */
+  profile: { rating: number; wins: number; losses: number } | null;
   /** The active battle, or null. */
   battle: {
     /** True for a PvP battle (a real opponent), false for a PvE wild encounter. */
@@ -171,6 +173,10 @@ export function installIntrospection(
         fromHex: c.fromIdentity.toHexString(),
         toHex: c.toIdentity.toHexString(),
       })),
+      profile: (() => {
+        const p = net.myProfile();
+        return p ? { rating: p.rating, wins: p.wins, losses: p.losses } : null;
+      })(),
       battle: (() => {
         const b = net.battle();
         if (!b) return null;

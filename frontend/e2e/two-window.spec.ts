@@ -695,6 +695,12 @@ test.describe.serial('two-window integration', () => {
     }
 
     const idHexB = (await snapshot(pageB)).identityHex!;
+    // Ranked: capture both players' ladder profiles before the match (M11.3).
+    const profileOf = async (page: Page) =>
+      (await snapshot(page)).profile ?? { rating: 1000, wins: 0, losses: 0 };
+    const ratingOf = async (page: Page): Promise<number> => (await profileOf(page)).rating;
+    const aBefore = await profileOf(pageA);
+    const bBefore = await profileOf(pageB);
 
     // A challenges B.
     await pageA.keyboard.press('KeyC');
@@ -743,6 +749,14 @@ test.describe.serial('two-window integration', () => {
     const loserPage = finalA?.outcome === 'PlayerWon' ? pageB : pageA;
     await expect(winnerPage.locator('#battle-screen')).toContainText('Victory');
     await expect(loserPage.locator('#battle-screen')).toContainText('Defeat');
+
+    // Ranked: the win moved both ladder ratings (winner up, loser down) and bumped W/L by exactly one.
+    const winnerBefore = winnerPage === pageA ? aBefore : bBefore;
+    const loserBefore = loserPage === pageA ? aBefore : bBefore;
+    await expect.poll(async () => ratingOf(winnerPage)).toBeGreaterThan(winnerBefore.rating);
+    await expect.poll(async () => ratingOf(loserPage)).toBeLessThan(loserBefore.rating);
+    expect((await snapshot(winnerPage)).profile?.wins).toBe(winnerBefore.wins + 1);
+    expect((await snapshot(loserPage)).profile?.losses).toBe(loserBefore.losses + 1);
 
     // Dismissing removes the shared row → both return to the overworld.
     await winnerPage.locator('#battle-screen').getByText('Continue').click();
