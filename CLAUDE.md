@@ -26,7 +26,9 @@ A 2D top-down multiplayer browser game.
 ```
 game-core/         # Shared Rust crate: types, rules, pure simulation logic
                    #   minimal deps; NO I/O, NO platform deps (uses std; alloc is fine)
-client-wasm/       # Rust → WASM. Wraps game-core for prediction; wasm-bindgen exports
+                   #   modules: world/ (movement, map) · monster/ (individuality, stats, XP) ·
+                   #   combat/ (turn-based battle) · taming/ (encounters, recruit) · content/ (RON)
+client-wasm/       # Rust → WASM. Wraps game-core for MOVEMENT prediction; wasm-bindgen exports
 server-module/     # SpacetimeDB 2.6 Rust module. Wraps game-core in reducers
 frontend/          # PixiJS + TS. Renders state, captures input, calls reducers
 ```

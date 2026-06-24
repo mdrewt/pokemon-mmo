@@ -17,6 +17,7 @@ import SetMoveReducer from "../set_move_reducer";
 import SetPartySlotReducer from "../set_party_slot_reducer";
 import StartBattleReducer from "../start_battle_reducer";
 import SubmitActionReducer from "../submit_action_reducer";
+import SwapActiveReducer from "../swap_active_reducer";
 
 export type AttemptRecruitParams = __Infer<typeof AttemptRecruitReducer>;
 export type ClearQueueParams = __Infer<typeof ClearQueueReducer>;
@@ -29,4 +30,5 @@ export type SetMoveParams = __Infer<typeof SetMoveReducer>;
 export type SetPartySlotParams = __Infer<typeof SetPartySlotReducer>;
 export type StartBattleParams = __Infer<typeof StartBattleReducer>;
 export type SubmitActionParams = __Infer<typeof SubmitActionReducer>;
+export type SwapActiveParams = __Infer<typeof SwapActiveReducer>;
 

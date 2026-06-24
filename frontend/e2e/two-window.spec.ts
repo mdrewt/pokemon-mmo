@@ -388,6 +388,46 @@ test.describe.serial('two-window integration', () => {
     expect(boxMon!.currentHp).toBeGreaterThan(0);
   });
 
+  test('the active monster can be switched mid-battle (M8.1)', async () => {
+    // Pre-req: the recruit test left a caught monster in pageA's box. Field it in party slot 2 so the
+    // battle team has two members to switch between.
+    const boxMon = (await snapshot(pageA)).monsters.find((m) => m.partySlot === null);
+    expect(boxMon, 'recruit test should have left a box monster').toBeTruthy();
+    await pageA.keyboard.press('KeyB');
+    await expect(pageA.locator('#box-screen')).toBeVisible();
+    await pageA.locator(`#box-screen [data-monster-id="${boxMon!.monsterId}"]`).click();
+    await pageA.locator('#box-screen [data-party="1"]').click(); // party slot index 1
+    await expect
+      .poll(async () => (await snapshot(pageA)).monsters.filter((m) => m.partySlot !== null).length)
+      .toBe(2);
+    await pageA.keyboard.press('Escape');
+    await expect(pageA.locator('#box-screen')).toBeHidden();
+
+    // Heal so both party members are conscious, then start an encounter.
+    await pageA.locator('#app').click();
+    await pageA.keyboard.press('KeyH');
+    await pageA.keyboard.press('KeyF');
+    await expect.poll(async () => (await snapshot(pageA)).battle?.playerTeam.length ?? 0).toBe(2);
+
+    const before = (await snapshot(pageA)).battle!;
+    expect(before.playerActive).toBe(0);
+    // Switch to the benched member (team index 1). The wild gets a free hit on the monster sent in.
+    await pageA.locator('#battle-screen [data-swap="1"]').click();
+    await expect
+      .poll(async () => {
+        const b = (await snapshot(pageA)).battle;
+        return b === null || b.playerActive === 1;
+      })
+      .toBe(true);
+    const after = (await snapshot(pageA)).battle;
+    if (after) {
+      expect(after.playerActive).toBe(1);
+      expect(after.turn).toBeGreaterThan(before.turn); // the swap consumed the turn
+      await expect(pageA.locator('#battle-screen')).toContainText('Go,');
+    }
+    await fleeIfBattling(pageA);
+  });
+
   test('the NPC wanders', async () => {
     const npcId = (await snapshot(pageA)).characters.find((c) => c.isNpc)!.entityId;
     const start = byId(await snapshot(pageA), npcId)!;

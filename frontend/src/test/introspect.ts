@@ -59,6 +59,9 @@ export interface GameSnapshot {
     turn: number;
     playerHp: number;
     playerMaxHp: number;
+    /** Index of the player's active team member + the team's per-member HP (for switch assertions). */
+    playerActive: number;
+    playerTeam: { speciesId: number; currentHp: number; maxHp: number }[];
     enemyHp: number;
     enemyMaxHp: number;
     lastXpGain: number;
@@ -141,6 +144,12 @@ export function installIntrospection(
           turn: b.state.turn,
           playerHp: p?.currentHp ?? 0,
           playerMaxHp: p?.maxHp ?? 0,
+          playerActive: b.state.player.active,
+          playerTeam: b.state.player.team.map((m) => ({
+            speciesId: m.speciesId,
+            currentHp: m.currentHp,
+            maxHp: m.maxHp,
+          })),
           enemyHp: e?.currentHp ?? 0,
           enemyMaxHp: e?.maxHp ?? 0,
           lastXpGain: b.lastXpGain,

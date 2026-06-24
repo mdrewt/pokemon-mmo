@@ -45,6 +45,7 @@ import SetMoveReducer from "./set_move_reducer";
 import SetPartySlotReducer from "./set_party_slot_reducer";
 import StartBattleReducer from "./start_battle_reducer";
 import SubmitActionReducer from "./submit_action_reducer";
+import SwapActiveReducer from "./swap_active_reducer";
 
 // Import all procedure arg schemas
 
@@ -210,6 +211,7 @@ const reducersSchema = __reducers(
   __reducerSchema("set_party_slot", SetPartySlotReducer),
   __reducerSchema("start_battle", StartBattleReducer),
   __reducerSchema("submit_action", SubmitActionReducer),
+  __reducerSchema("swap_active", SwapActiveReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

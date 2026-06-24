@@ -70,6 +70,9 @@ export const BattleEvent = __t.enum("BattleEvent", {
   get Fainted() {
     return FaintEvent;
   },
+  get Switched() {
+    return SwitchEvent;
+  },
   RecruitFailed: __t.unit(),
 });
 export type BattleEvent = __Infer<typeof BattleEvent>;
@@ -309,6 +312,11 @@ export const StatBlock = __t.object("StatBlock", {
   speed: __t.u16(),
 });
 export type StatBlock = __Infer<typeof StatBlock>;
+
+export const SwitchEvent = __t.object("SwitchEvent", {
+  speciesId: __t.u32(),
+});
+export type SwitchEvent = __Infer<typeof SwitchEvent>;
 
 // The tagged union or sum type for the algebraic type `Temperament`.
 export const Temperament = __t.enum("Temperament", {
