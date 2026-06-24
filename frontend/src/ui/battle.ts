@@ -190,15 +190,9 @@ export class BattleScreen {
     }
     menu.append(grid);
 
-    // Action row: recruit (recruit-by-weaken), recruit with bait (if any), and flee.
+    // Action row: recruit with bait (if any, shown first as the better option), plain recruit, flee.
     const actions = document.createElement('div');
     actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;';
-
-    const recruit = this.#button('Recruit');
-    recruit.dataset.recruit = 'plain';
-    recruit.title = 'Lower its HP first for a better chance';
-    recruit.onclick = () => this.#net.attemptRecruit(false);
-    actions.append(recruit);
 
     const bait = this.#net.baitCount();
     if (bait > 0) {
@@ -207,6 +201,12 @@ export class BattleScreen {
       baitBtn.onclick = () => this.#net.attemptRecruit(true);
       actions.append(baitBtn);
     }
+
+    const recruit = this.#button('Recruit');
+    recruit.dataset.recruit = 'plain';
+    recruit.title = 'Lower its HP first for a better chance';
+    recruit.onclick = () => this.#net.attemptRecruit(false);
+    actions.append(recruit);
 
     const flee = this.#button('Flee');
     flee.onclick = () => this.#net.closeBattle();

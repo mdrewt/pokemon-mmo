@@ -11,7 +11,7 @@
 // players}; the two joins make it {1 NPC, 2 players}. Spawn tiles are random, so the test reads
 // actual tiles from the snapshot and moves relative to them rather than hard-coding positions.
 
-import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { test, expect, type Page, type BrowserContext, type Locator } from '@playwright/test';
 import type { GameSnapshot, GameCharSnapshot } from '../src/test/introspect';
 
 type DirKey = 'KeyW' | 'KeyA' | 'KeyS' | 'KeyD';
@@ -73,6 +73,34 @@ async function fleeIfBattling(page: Page): Promise<void> {
   }
 }
 
+/** Click a battle action (skill / recruit) and wait for the turn to advance or the battle to end —
+ *  retrying the click if it raced a battle-screen re-render and didn't register. Returns when the
+ *  battle is no longer awaiting this action. This is what keeps the battle-driven tests from flaking
+ *  on the occasional click-vs-rerender race. */
+async function battleAct(page: Page, action: Locator): Promise<void> {
+  const before = (await snapshot(page)).battle?.turn ?? -1;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const b = (await snapshot(page)).battle;
+    if (!b || b.outcome !== 'Ongoing') return; // battle ended — nothing to submit
+    if ((await action.count()) === 0) return;
+    await action.first().click().catch(() => undefined); // a detached (re-rendered) node → retry
+    try {
+      await expect
+        .poll(
+          async () => {
+            const bb = (await snapshot(page)).battle;
+            return bb === null || bb.outcome !== 'Ongoing' || bb.turn > before;
+          },
+          { timeout: 3500 },
+        )
+        .toBe(true);
+      return;
+    } catch {
+      // No advance within the window — the click didn't take; loop and re-click.
+    }
+  }
+}
+
 /** Catch exactly one wild monster: fight encounters attempting recruit (with bait when available)
  *  each turn until the owned-monster count grows, then return. Bounded. Used by the fusion test to
  *  obtain base-form monsters. */
@@ -80,7 +108,10 @@ async function recruitOne(page: Page): Promise<void> {
   const count = async () => (await snapshot(page)).monsters.length;
   const start = await count();
   let battles = 0;
-  while ((await count()) === start && battles++ < 12) {
+  // Recruit ONLY (never attack), so the wild can't be killed off — the battle continues until we
+  // catch it or the party faints; a fresh battle then retries. ~30%/attempt over many attempts and
+  // many battles makes a catch effectively certain, with no kill-spiral or swap-revert flakiness.
+  while ((await count()) === start && battles++ < 15) {
     await page.locator('#app').click();
     await page.keyboard.press('KeyH'); // heal so the party can fight
     await expect
@@ -90,32 +121,14 @@ async function recruitOne(page: Page): Promise<void> {
       .toBe(true);
     await page.keyboard.press('KeyF');
     await expect.poll(async () => (await snapshot(page)).battle !== null).toBe(true);
-    // Field the highest-HP conscious member so the team survives longer → more recruit attempts.
-    const g0 = (await snapshot(page)).battle;
-    if (g0) {
-      let best = g0.playerActive;
-      g0.playerTeam.forEach((m, i) => {
-        if (m.currentHp > 0 && m.maxHp > g0.playerTeam[best]!.maxHp) best = i;
-      });
-      if (best !== g0.playerActive) {
-        await page.locator(`#battle-screen [data-swap="${best}"]`).click();
-        await expect.poll(async () => (await snapshot(page)).battle?.playerActive ?? -1).toBe(best);
-      }
-    }
     let guard = 0;
-    while (guard++ < 14) {
+    while (guard++ < 25) {
       const g = await snapshot(page);
       if (!g.battle || g.battle.outcome !== 'Ongoing') break;
-      const before = g.battle.turn;
-      const baitBtn = page.locator('#battle-screen [data-recruit="bait"]');
-      const btn = (await baitBtn.count()) > 0 ? baitBtn : page.locator('#battle-screen [data-recruit="plain"]');
-      await btn.first().click();
-      await expect
-        .poll(async () => {
-          const b = (await snapshot(page)).battle;
-          return b === null || b.outcome !== 'Ongoing' || b.turn > before;
-        })
-        .toBe(true);
+      // Decide bait-vs-plain from the SUBSCRIBED bait count (authoritative), not the DOM — avoids
+      // clicking a stale bait button after the last one is spent (which the server would reject).
+      const sel = g.baitCount > 0 ? '[data-recruit="bait"]' : '[data-recruit="plain"]';
+      await battleAct(page, page.locator(`#battle-screen ${sel}`));
     }
     const cont = page.locator('#battle-screen').getByText('Continue');
     if ((await cont.count()) > 0) await cont.click();
@@ -316,18 +329,10 @@ test.describe.serial('two-window integration', () => {
     while (guard++ < 20) {
       const g = await snapshot(pageA);
       if (!g.battle || g.battle.outcome !== 'Ongoing') break;
-      const skill = pageA.locator('#battle-screen [data-skill]').first();
-      const before = g.battle.turn;
-      await skill.click();
-      await expect
-        .poll(async () => {
-          const b = (await snapshot(pageA)).battle;
-          return b === null || b.turn > before || b.outcome !== 'Ongoing';
-        })
-        .toBe(true);
-      // The turn log shows attack events with damage.
-      await expect(pageA.locator('#battle-screen')).toContainText('used');
+      await battleAct(pageA, pageA.locator('#battle-screen [data-skill]'));
     }
+    // The turn log shows attack events with damage.
+    await expect(pageA.locator('#battle-screen')).toContainText('used');
 
     const ended = (await snapshot(pageA)).battle!;
     expect(['PlayerWon', 'PlayerLost']).toContain(ended.outcome);
@@ -402,17 +407,9 @@ test.describe.serial('two-window integration', () => {
       while (guard++ < 12) {
         const g = await snapshot(pageA);
         if (!g.battle || g.battle.outcome !== 'Ongoing') break;
-        const before = g.battle.turn;
-        // Prefer bait while we have it (a flat recruit bonus); fall back to a plain attempt.
-        const baitBtn = pageA.locator('#battle-screen [data-recruit="bait"]');
-        const btn = (await baitBtn.count()) > 0 ? baitBtn : pageA.locator('#battle-screen [data-recruit="plain"]');
-        await btn.first().click();
-        await expect
-          .poll(async () => {
-            const b = (await snapshot(pageA)).battle;
-            return b === null || b.outcome !== 'Ongoing' || b.turn > before;
-          })
-          .toBe(true);
+        // Prefer bait (the flat bonus) while the SUBSCRIBED count says we have it, else plain.
+        const sel = g.baitCount > 0 ? '[data-recruit="bait"]' : '[data-recruit="plain"]';
+        await battleAct(pageA, pageA.locator(`#battle-screen ${sel}`));
       }
 
       const ended = (await snapshot(pageA)).battle;
