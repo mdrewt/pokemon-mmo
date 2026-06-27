@@ -15,7 +15,7 @@ jobs:
     name: Rust (fmt, clippy, test, wasm)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.96.0
         with:
@@ -29,15 +29,15 @@ jobs:
       - name: Test
         run: cargo test --workspace
       - name: Install wasm-pack
-        uses: jetli/wasm-pack-action@v0.4.0
+        uses: taiki-e/install-action@v2
         with:
-          version: v0.13.1
+          tool: wasm-pack@0.13.1
       - name: Build client-wasm
         run: wasm-pack build client-wasm --target bundler
       # The frontend (tsc/vite) imports client-wasm/pkg, which is a gitignored build
       # output — hand it to the frontend job instead of rebuilding Rust there.
       - name: Upload client-wasm pkg
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: client-wasm-pkg
           path: client-wasm/pkg
@@ -51,14 +51,14 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Restore the wasm package built by the rust job (path is repo-root relative).
       - name: Restore client-wasm pkg
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: client-wasm-pkg
           path: client-wasm/pkg
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
