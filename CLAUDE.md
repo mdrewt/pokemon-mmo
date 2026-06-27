@@ -296,18 +296,19 @@ schema/binding regeneration steps still pending, and any unresolved desync/valid
 
 ## Desktop App (Cowork mode) — Session Setup
 
-This project lives in WSL (`Ubuntu`, at `~/projects/ai-apps/pokemon-mmo`). When working
+This project lives in WSL (`Ubuntu`, at `~/projects/ai-apps/claude-harness/projects/pokemon-mmo`). When working
 on it from the Claude desktop app, command execution must target the real Ubuntu
 environment — NOT the built-in sandbox shell, which cannot see the project's toolchain,
 and NOT a cowork folder mount (the WSL `\\wsl.localhost\...` UNC path is rejected by the
 folder picker, so this project can't be added as a cowork folder). This may be ignored if claude is running directly in the Linux system already, either as part of the CLI or through a VS Code extension.
 
-- **Primary: run all commands in WSL via Desktop Commander.** Start one persistent
-  interactive shell and reuse it across the session:
-  `wsl -d Ubuntu bash -i`, then `cd ~/projects/ai-apps/pokemon-mmo`.
-  This provides the pinned Rust 1.96.0 toolchain, `spacetime` 2.6.0, `wasm-pack`, node/npm.
-- **Fallback: Desktop Commander one-offs** for Windows-side work or if the interactive
-  shell dies — e.g. `wsl -d Ubuntu bash -lc "<command>"`.
+- **Primary: run all commands in WSL via Desktop Commander.** Desktop Commander runs **natively in
+  WSL** now, so run commands **directly** — no `wsl … bash -lc` wrapper. Keep one persistent shell;
+  `cd ~/projects/ai-apps/claude-harness/projects/pokemon-mmo` once and reuse it via `interact_with_process`.
+  The pinned toolchain (Rust 1.96.0, `spacetime` 2.6.0, `wasm-pack`, node/npm) is already on `PATH`;
+  `start_process` returns output inline.
+- **Windows-side work:** for a genuine Windows command, call it explicitly (e.g. `powershell.exe -c "…"`)
+  or reach Windows files under `/mnt/c/...`.
 - The sandbox `mcp__workspace__bash` is only for throwaway work that does not touch this
   project's toolchain or files.
 - Each Cowork session starts fresh: re-boot the persistent WSL shell at the start of the
